@@ -159,7 +159,21 @@ function getAvailableNetworkInterfaces() {
 // ============================================================================
 // NATIVE SNMP v1/v2c PROTOCOL ENGINE (RFC 1157, RFC 3416)
 // ============================================================================
-function buildMultiSnmpGet(community, oids) {
+function encodeBerLength(len) {
+  if (len < 128) {
+    return Buffer.from([len]);
+  } else if (len < 256) {
+    return Buffer.from([0x81, len]);
+  } else {
+    return Buffer.from([0x82, (len >> 8) & 0xff, len & 0xff]);
+  }
+}
+
+function encodeBerTlv(tag, buf) {
+  return Buffer.concat([Buffer.from([tag]), encodeBerLength(buf.length), buf]);
+}
+
+function buildMultiSnmpGet(community, oids, version = '2c') {
   const commBuf = Buffer.from(community || 'public');
   const varBinds = [];
 
@@ -177,30 +191,25 @@ function buildMultiSnmpGet(community, oids) {
         oidBytes.push(...b);
       }
     }
-    const vb = Buffer.concat([
-      Buffer.from([0x30, oidBytes.length + 4, 0x06, oidBytes.length]),
-      Buffer.from(oidBytes),
-      Buffer.from([0x05, 0x00])
-    ]);
-    varBinds.push(vb);
+    const oidTlv = encodeBerTlv(0x06, Buffer.from(oidBytes));
+    const nullTlv = Buffer.from([0x05, 0x00]);
+    varBinds.push(encodeBerTlv(0x30, Buffer.concat([oidTlv, nullTlv])));
   });
 
-  const vblContent = Buffer.concat(varBinds);
-  const vbl = Buffer.concat([Buffer.from([0x30, vblContent.length]), vblContent]);
+  const vblTlv = encodeBerTlv(0x30, Buffer.concat(varBinds));
   const reqId = Math.floor(Math.random() * 0x7fffffff);
-  const pdu = Buffer.concat([
-    Buffer.from([0xa0, 0, 0x02, 0x04, (reqId >> 24) & 0xff, (reqId >> 16) & 0xff, (reqId >> 8) & 0xff, reqId & 0xff, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00]),
-    vbl
-  ]);
-  pdu[1] = pdu.length - 2;
+  const reqIdBuf = Buffer.from([(reqId >> 24) & 0xff, (reqId >> 16) & 0xff, (reqId >> 8) & 0xff, reqId & 0xff]);
+  const reqIdTlv = encodeBerTlv(0x02, reqIdBuf);
+  const errStatusTlv = Buffer.from([0x02, 0x01, 0x00]);
+  const errIdxTlv = Buffer.from([0x02, 0x01, 0x00]);
 
-  const msg = Buffer.concat([
-    Buffer.from([0x30, 0, 0x02, 0x01, 0x01, 0x04, commBuf.length]),
-    commBuf,
-    pdu
-  ]);
-  msg[1] = msg.length - 2;
-  return msg;
+  const pduTlv = encodeBerTlv(0xa0, Buffer.concat([reqIdTlv, errStatusTlv, errIdxTlv, vblTlv]));
+  // SNMP version: 0 for v1, 1 for v2c
+  const verVal = (version === '1' || version === 0) ? 0 : 1;
+  const verTlv = Buffer.from([0x02, 0x01, verVal]);
+  const commTlv = encodeBerTlv(0x04, commBuf);
+
+  return encodeBerTlv(0x30, Buffer.concat([verTlv, commTlv, pduTlv]));
 }
 
 function parseSnmpResponse(buf) {
@@ -336,7 +345,7 @@ function parseSnmpResponse(buf) {
   return results;
 }
 
-function querySnmpDevice(ip, community = 'public', port = 161, oids = [], timeoutMs = 800) {
+function querySnmpDevice(ip, community = 'public', port = 161, oids = [], timeoutMs = 1200, version = '2c') {
   return new Promise((resolve) => {
     const start = Date.now();
     let isResolved = false;
@@ -348,9 +357,21 @@ function querySnmpDevice(ip, community = 'public', port = 161, oids = [], timeou
       return resolve({ success: false, error: e.message, latency: 0, values: {} });
     }
 
+    const packet = buildMultiSnmpGet(community, oids, version);
+
+    // Gửi lại 1 lần nếu sau 45% thời gian chưa có phản hồi (bù trừ rớt gói tin UDP)
+    const retryTimer = setTimeout(() => {
+      if (!isResolved && client) {
+        try {
+          client.send(packet, 0, packet.length, port, ip, () => {});
+        } catch (e) {}
+      }
+    }, Math.floor(timeoutMs * 0.45));
+
     const timer = setTimeout(() => {
       if (!isResolved) {
         isResolved = true;
+        clearTimeout(retryTimer);
         try { client.close(); } catch (e) {}
         resolve({ success: false, error: 'Timeout', latency: 0, values: {} });
       }
@@ -359,6 +380,7 @@ function querySnmpDevice(ip, community = 'public', port = 161, oids = [], timeou
     client.on('message', (msg) => {
       if (!isResolved) {
         isResolved = true;
+        clearTimeout(retryTimer);
         clearTimeout(timer);
         const latency = Date.now() - start;
         const parsed = parseSnmpResponse(msg);
@@ -374,16 +396,17 @@ function querySnmpDevice(ip, community = 'public', port = 161, oids = [], timeou
     client.on('error', (err) => {
       if (!isResolved) {
         isResolved = true;
+        clearTimeout(retryTimer);
         clearTimeout(timer);
         try { client.close(); } catch (e) {}
         resolve({ success: false, error: err.message, latency: 0, values: {} });
       }
     });
 
-    const packet = buildMultiSnmpGet(community, oids);
     client.send(packet, 0, packet.length, port, ip, (err) => {
       if (err && !isResolved) {
         isResolved = true;
+        clearTimeout(retryTimer);
         clearTimeout(timer);
         try { client.close(); } catch (e) {}
         resolve({ success: false, error: err.message, latency: 0, values: {} });
@@ -778,6 +801,7 @@ const server = http.createServer(async (req, res) => {
       const ip = (data && data.ip || '').trim();
       const community = (data && data.community || 'public').trim();
       const port = Number(data && data.port) || 161;
+      const snmpVer = (data && data.version) || '2c';
 
       if (!ip) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -786,33 +810,85 @@ const server = http.createServer(async (req, res) => {
       }
 
       try {
-        const oidsToProbe = [
+        // BƯỚC 1: Thăm dò cơ bản với gói tin nhỏ (sysDescr, sysUpTime, sysName) - bảo đảm 100% không bị quá tải PDU
+        const baseOids = [
           '1.3.6.1.2.1.1.1.0', // sysDescr
           '1.3.6.1.2.1.1.3.0', // sysUpTime
-          '1.3.6.1.2.1.1.5.0', // sysName
-          '1.3.6.1.4.1.9.9.109.1.1.1.1.5.1', // Cisco CPU
-          '1.3.6.1.4.1.8741.1.3.1.3.0',      // SonicWall CPU
-          '1.3.6.1.4.1.12356.101.4.1.3.0',   // Fortinet CPU
-          '1.3.6.1.2.1.25.3.3.1.2.1',        // HostResources CPU
-          '1.3.6.1.4.1.8741.1.3.1.4.0',      // SonicWall RAM
-          '1.3.6.1.4.1.12356.101.4.1.4.0',   // Fortinet RAM
-          '1.3.6.1.4.1.6574.1.5.1.0',        // Synology Temp
-          '1.3.6.1.4.1.9.9.13.1.3.1.3.1'     // Cisco Temp
+          '1.3.6.1.2.1.1.5.0'  // sysName
         ];
 
-        // Probe thông tin 8 cổng mạng đầu tiên
-        for (let i = 1; i <= 8; i++) {
-          oidsToProbe.push(`1.3.6.1.2.1.2.2.1.2.${i}`); // ifDescr
-          oidsToProbe.push(`1.3.6.1.2.1.2.2.1.8.${i}`); // ifOperStatus
-          oidsToProbe.push(`1.3.6.1.2.1.31.1.1.1.1.${i}`); // ifName
-          oidsToProbe.push(`1.3.6.1.2.1.31.1.1.1.15.${i}`); // ifHighSpeed
+        let snmpRes = await querySnmpDevice(ip, community, port, baseOids, 1800, snmpVer);
+
+        // Nếu thiết bị không phản hồi với phiên bản đã chọn, tự động thử với phiên bản còn lại (v1 <-> v2c)
+        if (!snmpRes.success) {
+          const altVer = (snmpVer === '1') ? '2c' : '1';
+          const altRes = await querySnmpDevice(ip, community, port, baseOids, 1200, altVer);
+          if (altRes.success) {
+            snmpRes = altRes;
+          }
         }
 
-        const snmpRes = await querySnmpDevice(ip, community, port, oidsToProbe, 1000);
         if (snmpRes.success) {
-          const v = snmpRes.values;
+          const v = { ...snmpRes.values };
           const sysDescr = v['1.3.6.1.2.1.1.1.0'] || 'SNMP Responder';
           const sysName = v['1.3.6.1.2.1.1.5.0'] || '';
+
+          // BƯỚC 2: Thăm dò các chỉ số cảm biến (CPU, RAM, Nhiệt độ)
+          const metricOids = [
+            '1.3.6.1.4.1.9.9.109.1.1.1.1.5.1', // Cisco CPU
+            '1.3.6.1.4.1.8741.1.3.1.3.0',      // SonicWall CPU
+            '1.3.6.1.4.1.12356.101.4.1.3.0',   // Fortinet CPU
+            '1.3.6.1.2.1.25.3.3.1.2.1',        // HostResources CPU
+            '1.3.6.1.4.1.8741.1.3.1.4.0',      // SonicWall RAM
+            '1.3.6.1.4.1.12356.101.4.1.4.0',   // Fortinet RAM
+            '1.3.6.1.4.1.6574.1.5.1.0',        // Synology Temp
+            '1.3.6.1.4.1.9.9.13.1.3.1.3.1'     // Cisco Temp
+          ];
+          const metricRes = await querySnmpDevice(ip, community, port, metricOids, 1000, snmpVer);
+          if (metricRes.success && metricRes.values) {
+            Object.assign(v, metricRes.values);
+          }
+
+          // BƯỚC 3: Thăm dò bảng cổng mạng thực tế (chia nhỏ từng batch 8 cổng)
+          const discoveredInterfaces = [];
+          for (let batchStart = 1; batchStart <= 24; batchStart += 8) {
+            const ifOids = [];
+            for (let i = batchStart; i < batchStart + 8; i++) {
+              ifOids.push(`1.3.6.1.2.1.31.1.1.1.1.${i}`);  // ifName
+              ifOids.push(`1.3.6.1.2.1.2.2.1.2.${i}`);     // ifDescr
+              ifOids.push(`1.3.6.1.2.1.2.2.1.8.${i}`);     // ifOperStatus
+              ifOids.push(`1.3.6.1.2.1.31.1.1.1.15.${i}`); // ifHighSpeed
+            }
+            const ifRes = await querySnmpDevice(ip, community, port, ifOids, 800, snmpVer);
+            if (ifRes.success && ifRes.values) {
+              Object.assign(v, ifRes.values);
+              let hasAnyInBatch = false;
+              for (let i = batchStart; i < batchStart + 8; i++) {
+                const ifName = ifRes.values[`1.3.6.1.2.1.31.1.1.1.1.${i}`] || ifRes.values[`1.3.6.1.2.1.2.2.1.2.${i}`];
+                if (ifName) {
+                  hasAnyInBatch = true;
+                  const opStatus = Number(ifRes.values[`1.3.6.1.2.1.2.2.1.8.${i}`]);
+                  const highSpeed = Number(ifRes.values[`1.3.6.1.2.1.31.1.1.1.15.${i}`]);
+                  let speedStr = '1 Gbps';
+                  if (highSpeed >= 10000) speedStr = '10 Gbps';
+                  else if (highSpeed >= 1000) speedStr = '1 Gbps';
+                  else if (highSpeed >= 100) speedStr = '100 Mbps';
+                  else if (highSpeed > 0) speedStr = `${highSpeed} Mbps`;
+
+                  discoveredInterfaces.push({
+                    port: i,
+                    name: ifName,
+                    speed: speedStr,
+                    status: opStatus === 1 ? 'up' : 'down',
+                    monitored: opStatus === 1 // Tự động chọn các cổng đang UP
+                  });
+                }
+              }
+              if (!hasAnyInBatch) break;
+            } else {
+              break;
+            }
+          }
 
           // Nhận diện CPU
           let cpuVal = null;
@@ -831,27 +907,6 @@ const server = http.createServer(async (req, res) => {
           if (v['1.3.6.1.4.1.6574.1.5.1.0'] != null) tempVal = Number(v['1.3.6.1.4.1.6574.1.5.1.0']);
           else if (v['1.3.6.1.4.1.9.9.13.1.3.1.3.1'] != null) tempVal = Number(v['1.3.6.1.4.1.9.9.13.1.3.1.3.1']);
 
-          // Danh sách cổng mạng phát hiện thực tế
-          const discoveredInterfaces = [];
-          for (let i = 1; i <= 8; i++) {
-            const ifName = v[`1.3.6.1.2.1.31.1.1.1.1.${i}`] || v[`1.3.6.1.2.1.2.2.1.2.${i}`];
-            if (ifName) {
-              const opStatus = Number(v[`1.3.6.1.2.1.2.2.1.8.${i}`]);
-              const highSpeed = Number(v[`1.3.6.1.2.1.31.1.1.1.15.${i}`]);
-              let speedStr = '1 Gbps';
-              if (highSpeed >= 10000) speedStr = '10 Gbps';
-              else if (highSpeed >= 1000) speedStr = '1 Gbps';
-              else if (highSpeed >= 100) speedStr = '100 Mbps';
-
-              discoveredInterfaces.push({
-                port: i,
-                name: ifName,
-                speed: speedStr,
-                status: opStatus === 1 ? 'up' : 'down'
-              });
-            }
-          }
-
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({
             success: true,
@@ -862,43 +917,29 @@ const server = http.createServer(async (req, res) => {
             sysDescr,
             sysName,
             sysUpTime: v['1.3.6.1.2.1.1.3.0'] ? `${Math.floor(Number(v['1.3.6.1.2.1.1.3.0']) / 8640000)}d` : 'Online',
-            snmp_version: data.version || '2c',
+            snmp_version: snmpVer,
             port,
             sensors_discovered: {
-              cpu: { supported: cpuVal !== null, current_val: cpuVal },
-              ram: { supported: ramVal !== null, current_val: ramVal },
-              temp: { supported: tempVal !== null, current_val: tempVal },
-              uptime: { supported: true },
-              sessions: { supported: /sonicwall|fortinet|cisco|firewall/i.test(sysDescr) },
-              storage: { supported: /synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr' }
+              cpu: { available: cpuVal !== null, value: cpuVal, label: 'Tải CPU (%)' },
+              ram: { available: ramVal !== null, value: ramVal, label: 'Bộ nhớ RAM (%)' },
+              temp: { available: tempVal !== null, value: tempVal, label: 'Cảm biến nhiệt độ (°C)' },
+              uptime: { available: true, value: v['1.3.6.1.2.1.1.3.0'] ? `${Math.floor(Number(v['1.3.6.1.2.1.1.3.0']) / 8640000)}d` : 'Online' },
+              sessions: { available: /sonicwall|fortinet|firewall/i.test(sysDescr) || data.type === 'firewall' },
+              storage: { available: /synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr' }
             },
             interfaces: discoveredInterfaces.length ? discoveredInterfaces : null
           }));
         } else {
-          // Thử TCP probe
-          const tcpProbe = await probeTcpLatency(ip, 80, 600);
-          if (tcpProbe.ok) {
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify({
-              success: true,
-              is_live: true,
-              ip,
-              latency_ms: tcpProbe.latency,
-              status: 'online',
-              sysDescr: `Thiết bị phản hồi TCP Port 80 (${tcpProbe.latency} ms) nhưng chưa bật SNMP Port 161`,
-              sysUpTime: 'Online',
-              note: 'Cần bật dịch vụ SNMP Service trên thiết bị và mở UDP Port 161',
-              port
-            }));
-          } else {
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify({
-              success: false,
-              is_live: false,
-              ip,
-              error: `Không nhận được phản hồi từ ${ip}:${port} (Timeout / Unreachable)`
-            }));
-          }
+          // SNMP THẬT SỰ KHÔNG PHẢN HỒI -> BÁO LỖI RÕ RÀNG VÀ CHÍNH XÁC
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({
+            success: false,
+            is_live: false,
+            ip,
+            port,
+            snmp_version: snmpVer,
+            error: `Thiết bị tại ${ip}:${port} không phản hồi gói tin SNMP UDP (Timeout). Vui lòng kiểm tra Community String ("${community}"), SNMP Version (v2c/v1), hoặc cấu hình ACL/Firewall cho phép UDP port 161 trên thiết bị.`
+          }));
         }
       } catch (scanErr) {
         res.writeHead(500, { 'Content-Type': 'application/json' });

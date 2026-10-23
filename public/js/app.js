@@ -197,6 +197,7 @@ function bootstrap() {
   try { initDeviceModalEvents(); } catch (e) { console.error('Lỗi initDeviceModalEvents:', e); }
   try { initZoneModalEvents(); } catch (e) { console.error('Lỗi initZoneModalEvents:', e); }
   try { initSettingsModalEvents(); } catch (e) { console.error('Lỗi initSettingsModalEvents:', e); }
+  try { initAlertsModalEvents(); } catch (e) { console.error('Lỗi initAlertsModalEvents:', e); }
   try { initSubnetScannerEvents(); } catch (e) { console.error('Lỗi initSubnetScannerEvents:', e); }
   try { initCentralMouseEngine(); } catch (e) { console.error('Lỗi initCentralMouseEngine:', e); }
 
@@ -1246,13 +1247,19 @@ function initDeviceModalEvents() {
           resBox.className = 'snmp-test-result success';
           resBox.innerHTML = `
             <strong><i class="mdi mdi-check-circle"></i> KẾT NỐI THÀNH CÔNG! (${d.latency_ms} ms)</strong><br>
-            <span>• Địa chỉ IP: ${d.ip} | Port: ${d.port} | SNMP v${d.snmp_version}</span><br>
+            <span>• Địa chỉ IP: ${d.ip} | Port: ${d.port} | SNMP v${d.snmp_version || '2c'}</span><br>
             <span>• sysDescr: ${d.sysDescr || 'OK'}</span><br>
             <span>• Thời gian hoạt động (UpTime): ${d.sysUpTime || 'Online'}</span>
             ${d.sensors_discovered ? `<br><span>• Chỉ số SNMP tìm thấy: ${Object.keys(d.sensors_discovered).filter(k => d.sensors_discovered[k] && d.sensors_discovered[k].available).map(k => k.toUpperCase()).join(', ')}</span>` : ''}
-            ${d.interfaces && d.interfaces.length ? `<br><span>• Đã quét thấy ${d.interfaces.length} cổng mạng (${d.interfaces.filter(i => i.status === 'up').length} cổng UP)</span>` : ''}
+            ${d.interfaces && d.interfaces.length ? `<br><span>• Đã quét thấy ${d.interfaces.length} cổng mạng (${d.interfaces.filter(i => i.status === 'up').length} cổng UP)` : ''}
             ${d.note ? `<br><small style="color:#fcd34d;">• ${d.note}</small>` : ''}
           `;
+
+          // Khi quét thành công: Mở bảng cảm biến & cổng mạng thực tế
+          const waitBox = document.getElementById('snmpSensorsWaitingBox');
+          const contentBox = document.getElementById('snmpSensorsContentBox');
+          if (waitBox) waitBox.style.display = 'none';
+          if (contentBox) contentBox.style.display = 'block';
 
           // Tự động kích hoạt các cảm biến tìm thấy và cập nhật nhãn trạng thái
           if (d.sensors_discovered) {
@@ -1302,7 +1309,7 @@ function initDeviceModalEvents() {
         } else {
           setEditDeviceStatusDisplay('bad');
           resBox.className = 'snmp-test-result error';
-          resBox.innerHTML = `<strong><i class="mdi mdi-close-circle"></i> KẾT NỐI THẤT BẠI</strong><br><span>Lý do: ${d.error || 'Timeout không có phản hồi'}</span>`;
+          resBox.innerHTML = `<strong><i class="mdi mdi-close-circle"></i> KẾT NỐI THẤT BẠI</strong><br><span>${escapeHtml(d.error || 'Timeout không có phản hồi')}</span>`;
         }
       }
     } catch (e) {
@@ -1546,27 +1553,14 @@ function openCreateDeviceModal() {
   populateParentDropdown(newId);
   handleDeviceTypeChange('switch');
 
-  // Khởi tạo tùy chọn chỉ số cảm biến mặc định
-  document.getElementById('chkSensorCpu').checked = true;
-  document.getElementById('chkSensorRam').checked = true;
-  document.getElementById('chkSensorTemp').checked = true;
-  document.getElementById('chkSensorUptime').checked = true;
-  document.getElementById('chkSensorSessions').checked = false;
-  document.getElementById('chkSensorStorage').checked = false;
+  // Khi thêm mới thiết bị: Ban đầu chưa có dữ liệu cảm biến & cổng mạng thực tế
+  // Hiển thị banner hướng dẫn bấm nút "Kiểm Tra Kết Nối SNMP" để quét tự động
+  const waitBox = document.getElementById('snmpSensorsWaitingBox');
+  const contentBox = document.getElementById('snmpSensorsContentBox');
+  if (waitBox) waitBox.style.display = 'flex';
+  if (contentBox) contentBox.style.display = 'none';
 
-  const hintCpu = document.getElementById('hintSensorCpu');
-  if (hintCpu) hintCpu.innerHTML = 'Cisco / SonicWall / Fortinet / HostResources';
-  const hintRam = document.getElementById('hintSensorRam');
-  if (hintRam) hintRam.innerHTML = 'Physical & Virtual Memory MIB';
-  const hintTemp = document.getElementById('hintSensorTemp');
-  if (hintTemp) hintTemp.innerHTML = 'Cisco EnvMon / Synology Temp MIB';
-
-  // Khởi tạo bảng cổng mạng mặc định
-  const defaultPorts = [];
-  for (let i = 1; i <= 24; i++) {
-    defaultPorts.push({ port: i, name: `Gi1/0/${i}`, speed: '1000M', status: 'down', monitored: true, note: '' });
-  }
-  renderPortsSelectTable(defaultPorts);
+  renderPortsSelectTable([]);
 
   const fTbody = document.getElementById('nasFoldersTbody');
   const uTbody = document.getElementById('nasUsersTbody');
@@ -1619,32 +1613,40 @@ function openEditDeviceModal(nodeId) {
 
   handleDeviceTypeChange(currentType);
 
-  // Nạp trạng thái tùy chọn giám sát cảm biến
-  const ms = dev.monitored_sensors || {};
-  document.getElementById('chkSensorCpu').checked = ms.cpu !== undefined ? !!ms.cpu : true;
-  document.getElementById('chkSensorRam').checked = ms.ram !== undefined ? !!ms.ram : true;
-  document.getElementById('chkSensorTemp').checked = ms.temp !== undefined ? !!ms.temp : true;
-  document.getElementById('chkSensorUptime').checked = ms.uptime !== undefined ? !!ms.uptime : true;
-  document.getElementById('chkSensorSessions').checked = ms.sessions !== undefined ? !!ms.sessions : (currentType === 'firewall');
-  document.getElementById('chkSensorStorage').checked = ms.storage !== undefined ? !!ms.storage : (currentType === 'nas' || currentType === 'nvr');
+  // Kiểm tra thiết bị đã có danh sách cổng mạng hoặc cảm biến đã cấu hình hay chưa
+  const editWaitBox = document.getElementById('snmpSensorsWaitingBox');
+  const editContentBox = document.getElementById('snmpSensorsContentBox');
+  const hasConfiguredPorts = Array.isArray(dev.ports) && dev.ports.length > 0;
+  const hasConfiguredSensors = Boolean(dev.monitored_sensors);
 
-  const hintCpu = document.getElementById('hintSensorCpu');
-  if (hintCpu) hintCpu.innerHTML = dev.cpu_percent !== undefined ? `Giá trị gần nhất: ${dev.cpu_percent}%` : 'Cisco / SonicWall / Fortinet / HostResources';
-  const hintRam = document.getElementById('hintSensorRam');
-  if (hintRam) hintRam.innerHTML = dev.ram_percent !== undefined ? `Giá trị gần nhất: ${dev.ram_percent}%` : 'Physical & Virtual Memory MIB';
-  const hintTemp = document.getElementById('hintSensorTemp');
-  if (hintTemp) hintTemp.innerHTML = dev.temp_c !== undefined ? `Giá trị gần nhất: ${dev.temp_c}°C` : 'Cisco EnvMon / Synology Temp MIB';
+  if (hasConfiguredPorts || hasConfiguredSensors) {
+    if (editWaitBox) editWaitBox.style.display = 'none';
+    if (editContentBox) editContentBox.style.display = 'block';
 
-  // Nạp danh sách các cổng mạng
-  let portsToRender = dev.ports;
-  if (!portsToRender || portsToRender.length === 0) {
-    const portCount = dev.ports_count || (currentType === 'switch' ? 24 : 8);
-    portsToRender = [];
-    for (let i = 1; i <= portCount; i++) {
-      portsToRender.push({ port: i, name: `Port ${i}`, speed: '1000M', status: 'down', monitored: true, note: '' });
-    }
+    // Nạp trạng thái tùy chọn giám sát cảm biến đã lưu
+    const ms = dev.monitored_sensors || {};
+    document.getElementById('chkSensorCpu').checked = ms.cpu !== undefined ? !!ms.cpu : true;
+    document.getElementById('chkSensorRam').checked = ms.ram !== undefined ? !!ms.ram : true;
+    document.getElementById('chkSensorTemp').checked = ms.temp !== undefined ? !!ms.temp : true;
+    document.getElementById('chkSensorUptime').checked = ms.uptime !== undefined ? !!ms.uptime : true;
+    document.getElementById('chkSensorSessions').checked = ms.sessions !== undefined ? !!ms.sessions : (currentType === 'firewall');
+    document.getElementById('chkSensorStorage').checked = ms.storage !== undefined ? !!ms.storage : (currentType === 'nas' || currentType === 'nvr');
+
+    const hintCpu = document.getElementById('hintSensorCpu');
+    if (hintCpu) hintCpu.innerHTML = dev.cpu_percent !== undefined ? `Giá trị gần nhất: ${dev.cpu_percent}%` : 'Cisco / SonicWall / Fortinet / HostResources';
+    const hintRam = document.getElementById('hintSensorRam');
+    if (hintRam) hintRam.innerHTML = dev.ram_percent !== undefined ? `Giá trị gần nhất: ${dev.ram_percent}%` : 'Physical & Virtual Memory MIB';
+    const hintTemp = document.getElementById('hintSensorTemp');
+    if (hintTemp) hintTemp.innerHTML = dev.temp_c !== undefined ? `Giá trị gần nhất: ${dev.temp_c}°C` : 'Cisco EnvMon / Synology Temp MIB';
+
+    // Nạp danh sách các cổng mạng đã lưu
+    renderPortsSelectTable(dev.ports || []);
+  } else {
+    // Thiết bị chưa có dữ liệu SNMP: hiển thị banner hướng dẫn bấm nút "Kiểm Tra Kết Nối SNMP"
+    if (editWaitBox) editWaitBox.style.display = 'flex';
+    if (editContentBox) editContentBox.style.display = 'none';
+    renderPortsSelectTable([]);
   }
-  renderPortsSelectTable(portsToRender);
 
   // Fill NVR fields
   if (currentType === 'nvr') {
@@ -1747,37 +1749,49 @@ async function saveDeviceForm() {
     port: Number(document.getElementById('editDevSnmpPort').value) || 161
   };
 
-  const monitored_sensors = {
-    cpu: document.getElementById('chkSensorCpu') ? document.getElementById('chkSensorCpu').checked : true,
-    ram: document.getElementById('chkSensorRam') ? document.getElementById('chkSensorRam').checked : true,
-    temp: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
-    uptime: document.getElementById('chkSensorUptime') ? document.getElementById('chkSensorUptime').checked : true,
-    sessions: document.getElementById('chkSensorSessions') ? document.getElementById('chkSensorSessions').checked : false,
-    storage: document.getElementById('chkSensorStorage') ? document.getElementById('chkSensorStorage').checked : false
-  };
+  const existingDev = findDevice(id);
+  const contentBox = document.getElementById('snmpSensorsContentBox');
+  const isContentVisible = contentBox && contentBox.style.display !== 'none';
 
-  const ports = [];
-  document.querySelectorAll('#portsSelectTbody tr').forEach(tr => {
-    const portNum = Number(tr.dataset.port);
-    if (!portNum) return;
-    const chk = tr.querySelector('.port-monitored-chk');
-    const nameEl = tr.querySelector('.port-name-text');
-    const noteEl = tr.querySelector('.port-note-input');
-    ports.push({
-      port: portNum,
-      name: nameEl ? nameEl.textContent.trim() : `Port ${portNum}`,
-      monitored: chk ? chk.checked : true,
-      speed: tr.dataset.speed || '1000M',
-      status: tr.dataset.status || 'down',
-      note: noteEl ? noteEl.value.trim() : ''
-    });
-  });
+  let monitored_sensors = existingDev ? existingDev.monitored_sensors : null;
+  let ports = existingDev ? existingDev.ports : null;
+
+  if (isContentVisible) {
+    monitored_sensors = {
+      cpu: document.getElementById('chkSensorCpu') ? document.getElementById('chkSensorCpu').checked : true,
+      ram: document.getElementById('chkSensorRam') ? document.getElementById('chkSensorRam').checked : true,
+      temp: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
+      uptime: document.getElementById('chkSensorUptime') ? document.getElementById('chkSensorUptime').checked : true,
+      sessions: document.getElementById('chkSensorSessions') ? document.getElementById('chkSensorSessions').checked : false,
+      storage: document.getElementById('chkSensorStorage') ? document.getElementById('chkSensorStorage').checked : false
+    };
+
+    const portRows = document.querySelectorAll('#portsSelectTbody tr');
+    if (portRows.length > 0) {
+      ports = [];
+      portRows.forEach(tr => {
+        const portNum = Number(tr.dataset.port);
+        if (!portNum) return;
+        const chk = tr.querySelector('.port-monitored-chk');
+        const nameEl = tr.querySelector('.port-name-text');
+        const noteEl = tr.querySelector('.port-note-input');
+        ports.push({
+          port: portNum,
+          name: nameEl ? nameEl.textContent.trim() : `Port ${portNum}`,
+          monitored: chk ? chk.checked : true,
+          speed: tr.dataset.speed || '1000M',
+          status: tr.dataset.status || 'down',
+          note: noteEl ? noteEl.value.trim() : ''
+        });
+      });
+    }
+  }
 
   const payload = {
-    id, name, type, ip, zone, status, vendor, model, parent, parent_port, child_port, snmp,
-    monitored_sensors,
-    ports
+    id, name, type, ip, zone, status, vendor, model, parent, parent_port, child_port, snmp
   };
+  if (monitored_sensors) payload.monitored_sensors = monitored_sensors;
+  if (ports && ports.length > 0) payload.ports = ports;
 
   if (type === 'nvr') {
     payload.nvr_details = {
@@ -2437,6 +2451,207 @@ function populateSettingsForm() {
   if (trafEl) trafEl.checked = tg.alert_on_high_traffic !== false;
   if (storEl) storEl.checked = tg.alert_on_storage !== false;
 }
+
+// ============================================================================
+// ACTIVE ALERTS DETAILS MODAL
+// ============================================================================
+function initAlertsModalEvents() {
+  const modal = document.getElementById('alertsDetailModal');
+  const alertPill = document.getElementById('statAlertPill');
+
+  if (alertPill) {
+    alertPill.onclick = () => openAlertsModal();
+  }
+
+  bindClick('btnAlertsModalClose', () => modal && modal.classList.remove('open'));
+  bindClick('btnCloseAlertsModal', () => modal && modal.classList.remove('open'));
+  bindClick('btnOpenAlertsSettings', () => {
+    if (modal) modal.classList.remove('open');
+    const settingsBtn = document.getElementById('btnSettingsModal');
+    if (settingsBtn) settingsBtn.click();
+  });
+}
+
+function getActiveAlertsList() {
+  const alerts = [];
+  const t = state.topology;
+  if (!t) return alerts;
+
+  const allDevs = [];
+  if (t.firewall) allDevs.push(t.firewall);
+  if (t.core_switch) allDevs.push(t.core_switch);
+  (t.switches || []).forEach(s => allDevs.push(s));
+  (t.infrastructure_nodes || []).forEach(n => allDevs.push(n));
+  (t.isp || []).forEach(i => allDevs.push(i));
+
+  allDevs.forEach(dev => {
+    // 1. Mất kết nối (Offline / Bad / Timeout)
+    if (dev.status === 'bad' || dev.status === 'offline' || dev.status === 'down') {
+      alerts.push({
+        id: `alert_offline_${dev.id}`,
+        deviceId: dev.id,
+        deviceName: dev.name,
+        deviceIp: dev.ip,
+        deviceType: dev.type,
+        zone: dev.zone || 'mdf',
+        severity: 'critical',
+        severityText: 'Mất Kết Nối (Offline)',
+        title: `Mất kết nối tới thiết bị "${dev.name}"`,
+        message: dev.warn_msg || `Thiết bị tại ${dev.ip || 'chưa gán IP'} không phản hồi gói tin SNMP/Ping. Kiểm tra nguồn điện hoặc cáp mạng.`,
+        time: 'Đang diễn ra'
+      });
+    } else if (dev.status === 'warn') {
+      alerts.push({
+        id: `alert_warn_${dev.id}`,
+        deviceId: dev.id,
+        deviceName: dev.name,
+        deviceIp: dev.ip,
+        deviceType: dev.type,
+        zone: dev.zone || 'mdf',
+        severity: 'warning',
+        severityText: 'Cảnh Báo (Warn)',
+        title: `Cảnh báo độ trễ cao / chập chờn trên "${dev.name}"`,
+        message: dev.warn_msg || `Độ trễ phản hồi (${dev.latency_ms || 0} ms) cao bất thường hoặc có dấu hiệu suy hao mạng.`,
+        time: 'Đang diễn ra'
+      });
+    }
+
+    // 2. Cảnh báo nhiệt độ phần cứng (> 65°C)
+    if (dev.temp_c && dev.temp_c > 65) {
+      alerts.push({
+        id: `alert_temp_${dev.id}`,
+        deviceId: dev.id,
+        deviceName: dev.name,
+        deviceIp: dev.ip,
+        deviceType: dev.type,
+        zone: dev.zone || 'mdf',
+        severity: 'warning',
+        severityText: 'Nhiệt Độ Cao',
+        title: `Nhiệt độ phần cứng cao (${dev.temp_c}°C)`,
+        message: `Thiết bị "${dev.name}" đang hoạt động ở ${dev.temp_c}°C, vượt ngưỡng an toàn (65°C). Cần kiểm tra quạt làm mát phòng máy.`,
+        time: 'Đang diễn ra'
+      });
+    }
+
+    // 3. Cảnh báo tải CPU (> 85%)
+    if (dev.cpu && dev.cpu > 85) {
+      alerts.push({
+        id: `alert_cpu_${dev.id}`,
+        deviceId: dev.id,
+        deviceName: dev.name,
+        deviceIp: dev.ip,
+        deviceType: dev.type,
+        zone: dev.zone || 'mdf',
+        severity: 'warning',
+        severityText: 'Tải CPU Cao',
+        title: `Tải CPU trên thiết bị đạt ${dev.cpu}%`,
+        message: `Tải CPU đang quá tải, có thể gây nghẽn băng thông hoặc trễ xử lý gói tin.`,
+        time: 'Đang diễn ra'
+      });
+    }
+
+    // 4. Cảnh báo dung lượng lưu trữ (> 90%)
+    if (dev.type === 'nas' && dev.nas_details) {
+      const tot = dev.nas_details.storage_total_tb || 0;
+      const used = dev.nas_details.storage_used_tb || 0;
+      if (tot > 0 && (used / tot) >= 0.9) {
+        const pct = Math.round((used / tot) * 100);
+        alerts.push({
+          id: `alert_nas_${dev.id}`,
+          deviceId: dev.id,
+          deviceName: dev.name,
+          deviceIp: dev.ip,
+          deviceType: dev.type,
+          zone: dev.zone || 'mdf',
+          severity: 'warning',
+          severityText: 'Sắp Hết Dung Lượng',
+          title: `Dung lượng NAS sắp đầy (${pct}%)`,
+          message: `Đã sử dụng ${used} TB / ${tot} TB. Cần dọn dẹp dữ liệu hoặc bổ sung ổ cứng.`,
+          time: 'Đang diễn ra'
+        });
+      }
+    } else if (dev.type === 'nvr' && dev.nvr_details) {
+      const tot = dev.nvr_details.storage_total_tb || 0;
+      const used = dev.nvr_details.storage_used_tb || 0;
+      if (tot > 0 && (used / tot) >= 0.9) {
+        const pct = Math.round((used / tot) * 100);
+        alerts.push({
+          id: `alert_nvr_${dev.id}`,
+          deviceId: dev.id,
+          deviceName: dev.name,
+          deviceIp: dev.ip,
+          deviceType: dev.type,
+          zone: dev.zone || 'mdf',
+          severity: 'warning',
+          severityText: 'Sắp Hết Dung Lượng',
+          title: `Đầu ghi camera NVR sắp đầy (${pct}%)`,
+          message: `Dung lượng video đạt ${used} TB / ${tot} TB.`,
+          time: 'Đang diễn ra'
+        });
+      }
+    }
+  });
+
+  return alerts;
+}
+
+function openAlertsModal() {
+  const modal = document.getElementById('alertsDetailModal');
+  const contentEl = document.getElementById('alertsModalContent');
+  if (!modal || !contentEl) return;
+
+  const alerts = getActiveAlertsList();
+
+  if (alerts.length === 0) {
+    contentEl.innerHTML = `
+      <div class="alert-empty-state">
+        <i class="mdi mdi-check-decagram"></i>
+        <h3>TẤT CẢ THIẾT BỊ ĐANG HOẠT ĐỘNG TỐT</h3>
+        <p>Hệ thống không ghi nhận bất kỳ cảnh báo mất kết nối, suy hao đường truyền hay vượt ngưỡng nào tại thời điểm này.</p>
+      </div>
+    `;
+  } else {
+    let html = `<div class="alerts-list-container">`;
+    alerts.forEach(a => {
+      const isCrit = (a.severity === 'critical');
+      html += `
+        <div class="alert-item-card ${isCrit ? 'critical' : 'warning'}">
+          <div class="alert-badge ${isCrit ? 'critical' : 'warning'}">
+            <i class="mdi ${isCrit ? 'mdi-alert-octagon' : 'mdi-alert'}"></i>
+            ${escapeHtml(a.severityText)}
+          </div>
+          <div class="alert-item-main">
+            <div class="alert-item-header">
+              <span class="alert-device-name">${escapeHtml(a.deviceName)}</span>
+              <span class="alert-device-ip">[${escapeHtml(a.deviceIp || 'No IP')}]</span>
+              <span class="alert-zone-badge">${escapeHtml(a.zone || 'Khu vực')}</span>
+            </div>
+            <div class="alert-item-title">${escapeHtml(a.title)}</div>
+            <div class="alert-item-message">${escapeHtml(a.message)}</div>
+          </div>
+          <div class="alert-item-actions">
+            <span class="alert-time">${escapeHtml(a.time)}</span>
+            <button type="button" class="btn-xs btn-edit-row" onclick="viewAlertDevice('${escapeHtml(a.deviceId)}')">
+              <i class="mdi mdi-eye"></i> Xem Thiết Bị
+            </button>
+          </div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+    contentEl.innerHTML = html;
+  }
+
+  modal.classList.add('open');
+}
+
+window.viewAlertDevice = function(deviceId) {
+  const modal = document.getElementById('alertsDetailModal');
+  if (modal) modal.classList.remove('open');
+  if (deviceId) {
+    openDeviceDrawer(deviceId);
+  }
+};
 
 // ============================================================================
 // TOPOLOGY TOOLBAR & ZOOM CONTROLS

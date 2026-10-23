@@ -235,18 +235,50 @@
               </div>
               <div class="form-group flex-1">
                 <label>Cổng Trên Thiết Bị Cha (Parent Port):</label>
-                <input type="text" id="editDevParentPort" placeholder="ví dụ: Te1/0/5, Gi1/0/10...">
+                <div class="parent-port-combo-group" style="display:flex; gap:6px;">
+                  <select id="editDevParentPortSelect" style="flex:1;">
+                    <option value="">-- Đang nạp danh sách cổng... --</option>
+                  </select>
+                  <input type="text" id="editDevParentPort" placeholder="ví dụ: Te1/0/5, X1, Gi1/0/1..." style="flex:1; display:none;">
+                </div>
+                <small style="color:var(--text-dim); font-size:11px;">Chọn từ cổng thực tế của thiết bị cha hoặc chọn Điền tay (Custom).</small>
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group flex-1">
                 <label>Hãng Sản Xuất (Vendor):</label>
-                <input type="text" id="editDevVendor" placeholder="Cisco, Synology, Dahua, Fortinet...">
+                <input type="text" id="editDevVendor" placeholder="Cisco, SonicWall, Synology, Dahua, Fortinet...">
               </div>
               <div class="form-group flex-2">
                 <label>Model Phần Cứng:</label>
-                <input type="text" id="editDevModel" placeholder="Catalyst 1000, DS920+, NVR5864...">
+                <input type="text" id="editDevModel" placeholder="Catalyst 1000, TZ400, DS920+, NVR5864...">
+              </div>
+            </div>
+
+            <!-- HARDWARE FACEPLATE & WEB IMAGE SEARCH HELPER -->
+            <div class="form-row" id="rowHardwareFaceplate">
+              <div class="form-group flex-2">
+                <label>Mặt Trước Thiết Bị (Hardware Faceplate / Web Image):</label>
+                <div style="display:flex; gap:8px;">
+                  <input type="text" id="editDevImage" placeholder="Dán link ảnh mặt trước (URL) hoặc bấm tìm trên web...">
+                  <button type="button" class="btn btn-secondary" id="btnSearchDeviceImage" style="white-space:nowrap; padding:6px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;" title="Mở Google Images tìm ảnh mặt trước của dòng máy này">
+                    <i class="mdi mdi-image-search"></i> Tìm Ảnh Trên Web
+                  </button>
+                </div>
+                <small style="color:var(--text-dim); font-size:11px;">Tự động tìm kiếm ảnh mặt trước switch/thiết bị thật trên Google để trực quan hóa.</small>
+              </div>
+              <div class="form-group flex-1">
+                <label>Mô Phỏng Mặt Trước (Preset):</label>
+                <select id="editDevPresetFaceplate">
+                  <option value="chassis_auto" selected>Mô phỏng 1U Chuẩn Rack (Ảnh 4)</option>
+                  <option value="cisco_24p">Cisco Catalyst 24P + 4 SFP</option>
+                  <option value="cisco_48p">Cisco Catalyst 48P + 4 SFP+</option>
+                  <option value="sonicwall_fw">SonicWall Firewall (X0 - X7)</option>
+                  <option value="fortinet_fw">Fortinet FortiGate (WAN/LAN)</option>
+                  <option value="mikrotik_crs">MikroTik Cloud Switch CRS</option>
+                  <option value="synology_rs">Synology RackStation NAS</option>
+                </select>
               </div>
             </div>
 
@@ -414,20 +446,45 @@
               <!-- STATE 2: DISCOVERED CONTENT (Hiển thị sau khi quét thành công hoặc nạp cấu hình đã lưu) -->
               <div id="snmpSensorsContentBox" style="display: none;">
                 <div class="sensors-header">
-                  <div class="sensors-title">
-                    <i class="mdi mdi-checkbox-multiple-marked-circle"></i> TÙY CHỌN CHỈ SỐ SNMP CẦN GIÁM SÁT (MONITORING SENSORS)
-                  </div>
-                  <div class="sensors-subtitle">
-                    Lựa chọn các thông số thiết bị cung cấp mà bạn muốn theo dõi hoặc bỏ qua để tối ưu băng thông mạng
+                  <div class="sensors-title-row" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <div>
+                      <div class="sensors-title">
+                        <i class="mdi mdi-checkbox-multiple-marked-circle"></i> TÙY CHỌN CHỈ SỐ SNMP CẦN GIÁM SÁT (MONITORING SENSORS)
+                      </div>
+                      <div class="sensors-subtitle">
+                        Lựa chọn các thông số thiết bị cung cấp mà bạn muốn theo dõi hoặc bỏ qua để tối ưu băng thông mạng
+                      </div>
+                    </div>
+                    <div class="sensors-bulk-actions">
+                      <button type="button" class="btn-xs" id="btnSelectAllSensors">Chọn Tất Cả Chỉ Số</button>
+                      <button type="button" class="btn-xs" id="btnSelectBasicSensorsOnly">Chỉ Giám Sát Cơ Bản (Ping + UpTime)</button>
+                      <button type="button" class="btn-xs" id="btnDeselectAllSensors">Bỏ Chọn Hết</button>
+                    </div>
                   </div>
                 </div>
 
                 <!-- METRIC TOGGLE CHECKBOXES -->
                 <div class="sensors-grid">
                   <label class="sensor-checkbox-item">
+                    <input type="checkbox" id="chkSensorPing" checked>
+                    <div class="sensor-info">
+                      <span class="sensor-name"><i class="mdi mdi-access-point-network" style="color:#38bdf8;"></i> Kiểm Tra Ping (ICMP RTT)</span>
+                      <span class="sensor-hint" id="hintSensorPing">Đo độ trễ ms & tỷ lệ mất gói tin (Packet Loss)</span>
+                    </div>
+                  </label>
+
+                  <label class="sensor-checkbox-item">
+                    <input type="checkbox" id="chkSensorUptime" checked>
+                    <div class="sensor-info">
+                      <span class="sensor-name"><i class="mdi mdi-clock-outline" style="color:#34d399;"></i> Thời Gian Hoạt Động (UpTime)</span>
+                      <span class="sensor-hint" id="hintSensorUptime">sysUpTime.0 (RFC 1213)</span>
+                    </div>
+                  </label>
+
+                  <label class="sensor-checkbox-item">
                     <input type="checkbox" id="chkSensorCpu" checked>
                     <div class="sensor-info">
-                      <span class="sensor-name"><i class="mdi mdi-cpu-64-bit"></i> Tải Xử Lý CPU (%)</span>
+                      <span class="sensor-name"><i class="mdi mdi-cpu-64-bit" style="color:#f59e0b;"></i> Tải Xử Lý CPU (%)</span>
                       <span class="sensor-hint" id="hintSensorCpu">Cisco / SonicWall / Fortinet / HostResources</span>
                     </div>
                   </label>
@@ -435,7 +492,7 @@
                   <label class="sensor-checkbox-item">
                     <input type="checkbox" id="chkSensorRam" checked>
                     <div class="sensor-info">
-                      <span class="sensor-name"><i class="mdi mdi-memory"></i> Bộ Nhớ RAM (%)</span>
+                      <span class="sensor-name"><i class="mdi mdi-memory" style="color:#a855f7;"></i> Bộ Nhớ RAM (%)</span>
                       <span class="sensor-hint" id="hintSensorRam">Physical & Virtual Memory MIB</span>
                     </div>
                   </label>
@@ -443,32 +500,40 @@
                   <label class="sensor-checkbox-item">
                     <input type="checkbox" id="chkSensorTemp" checked>
                     <div class="sensor-info">
-                      <span class="sensor-name"><i class="mdi mdi-thermometer"></i> Cảm Biến Nhiệt Độ (°C)</span>
-                      <span class="sensor-hint" id="hintSensorTemp">Cisco EnvMon / Synology Temp MIB</span>
+                      <span class="sensor-name"><i class="mdi mdi-heart-pulse" style="color:#ef4444;"></i> Sức Khỏe & Nhiệt Độ (°C)</span>
+                      <span class="sensor-hint" id="hintSensorTemp">EnvMon / System Temp & Fan Status</span>
                     </div>
                   </label>
 
-                  <label class="sensor-checkbox-item">
-                    <input type="checkbox" id="chkSensorUptime" checked>
+                  <label class="sensor-checkbox-item" id="itemSensorVpn">
+                    <input type="checkbox" id="chkSensorVpn" checked>
                     <div class="sensor-info">
-                      <span class="sensor-name"><i class="mdi mdi-clock-outline"></i> Thời Gian Chạy (UpTime) & Ping</span>
-                      <span class="sensor-hint">sysUpTime.0 (RFC 1213)</span>
+                      <span class="sensor-name"><i class="mdi mdi-shield-link-variant" style="color:#06b6d4;"></i> Kênh Mạng Riêng Ảo VPN</span>
+                      <span class="sensor-hint" id="hintSensorVpn">IPSec Tunnel & SSL-VPN (Firewall/Router)</span>
                     </div>
                   </label>
 
                   <label class="sensor-checkbox-item" id="itemSensorSessions">
                     <input type="checkbox" id="chkSensorSessions" checked>
                     <div class="sensor-info">
-                      <span class="sensor-name"><i class="mdi mdi-swap-horizontal-bold"></i> Số Lượng Phiên (Sessions)</span>
-                      <span class="sensor-hint">Dành riêng cho Tường Lửa Firewall</span>
+                      <span class="sensor-name"><i class="mdi mdi-swap-horizontal-bold" style="color:#6366f1;"></i> Số Lượng Phiên (Sessions)</span>
+                      <span class="sensor-hint" id="hintSensorSessions">Dành riêng cho Tường Lửa Firewall</span>
                     </div>
                   </label>
 
                   <label class="sensor-checkbox-item" id="itemSensorStorage">
                     <input type="checkbox" id="chkSensorStorage" checked>
                     <div class="sensor-info">
-                      <span class="sensor-name"><i class="mdi mdi-harddisk"></i> Dung Lượng Ổ Cứng (Storage)</span>
-                      <span class="sensor-hint">Dành cho NAS, NVR, Máy Chủ</span>
+                      <span class="sensor-name"><i class="mdi mdi-harddisk" style="color:#ec4899;"></i> Dung Lượng Ổ Cứng (Storage)</span>
+                      <span class="sensor-hint" id="hintSensorStorage">Dành cho NAS, NVR, Máy Chủ</span>
+                    </div>
+                  </label>
+
+                  <label class="sensor-checkbox-item" id="itemSensorPoe">
+                    <input type="checkbox" id="chkSensorPoe" checked>
+                    <div class="sensor-info">
+                      <span class="sensor-name"><i class="mdi mdi-flash" style="color:#eab308;"></i> Cấp Nguồn PoE (Power Budget)</span>
+                      <span class="sensor-hint" id="hintSensorPoe">Cấp nguồn qua cáp LAN cho AP & Camera</span>
                     </div>
                   </label>
                 </div>

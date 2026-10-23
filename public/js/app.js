@@ -308,10 +308,13 @@ function updateNodeTexts() {
       sw.ports.forEach((p) => {
         const pEl = document.querySelector(`[data-portid="${sw.id}_${p.port}"]`);
         if (pEl) {
-          const trEl = pEl.querySelector('.port-traffic');
-          if (trEl) {
-            trEl.innerHTML = `<span style="color:#38bdf8">↓${fmtRate(p.down_bps)}</span><br><span style="color:#818cf8">↑${fmtRate(p.up_bps)}</span>`;
-          }
+          const isUp = p.status === 'up';
+          pEl.classList.toggle('status-up', isUp);
+          pEl.classList.toggle('up', isUp);
+          pEl.classList.toggle('status-down', !isUp);
+          pEl.classList.toggle('down', !isUp);
+          const glyph = pEl.querySelector('.port-glyph, .sfp-glyph');
+          if (glyph) glyph.textContent = isUp ? '✓' : '✗';
         }
       });
     }
@@ -696,8 +699,8 @@ function initCentralMouseEngine() {
 
       const portCol = document.querySelector(`.ports-column[data-swid="${state.drag.nodeId}"]`);
       if (portCol) {
-        portCol.style.left = `${newX + 270}px`;
-        portCol.style.top = `${newY}px`;
+        portCol.style.left = `${newX - 140}px`;
+        portCol.style.top = `${newY + 130}px`;
       }
 
       scheduleDrawLinks();
@@ -745,7 +748,8 @@ async function saveNodePosition(nodeId, x, y) {
 
 function handleNodeClick(nodeId) {
   const sw = (state.topology && state.topology.switches || []).find((s) => s.id === nodeId);
-  if (sw) {
+  const isCore = state.topology && state.topology.core_switch && (state.topology.core_switch.id === nodeId || nodeId === 'core');
+  if (sw || isCore) {
     if (state.selectedSwitches.has(nodeId)) {
       state.selectedSwitches.delete(nodeId);
     } else {
@@ -761,61 +765,263 @@ function handleNodeClick(nodeId) {
 // ============================================================================
 // EXPANDED PORT MATRIX COLUMN
 // ============================================================================
+// ============================================================================
+// 1U RACKMOUNT CHASSIS FACEPLATE VISUALIZER (IMAGE 4 COMPLIANT)
+// ============================================================================
 function renderExpandedPorts() {
   const container = document.getElementById('portsColumns');
   if (!container) return;
   container.innerHTML = '';
   const t = state.topology;
-  if (!t || !t.switches) return;
+  if (!t) return;
 
   const layout = t.layout || {};
 
   state.selectedSwitches.forEach((swId) => {
-    const sw = t.switches.find((s) => s.id === swId);
-    if (!sw || !sw.ports) return;
+    let sw = (t.switches || []).find((s) => s.id === swId);
+    if (!sw && t.core_switch && (t.core_switch.id === swId || swId === 'core')) sw = t.core_switch;
+    if (!sw && t.firewall && (t.firewall.id === swId || swId === 'fw')) sw = t.firewall;
+    if (!sw) return;
+
+    let ports = sw.ports || [];
+    if (!ports.length) {
+      const totalCount = sw.type === 'firewall' ? 8 : (sw.ports_count || 24);
+      ports = [];
+      for (let i = 1; i <= totalCount; i++) {
+        ports.push({
+          port: i,
+          name: sw.type === 'firewall' ? `X${i-1}` : `Gi1/0/${i}`,
+          status: i <= 8 ? 'up' : 'down',
+          speed: '1 Gbps',
+          poe_watts: (i <= 4 && sw.type !== 'firewall') ? 15.4 : 0,
+          down_bps: 0,
+          up_bps: 0
+        });
+      }
+      if (sw.type === 'switch' && totalCount === 24) {
+        for (let s = 25; s <= 28; s++) {
+          ports.push({
+            port: s,
+            name: `Te1/0/${s - 24}`,
+            status: (s === 25 || s === 27 || s === 28) ? 'up' : 'down',
+            speed: '10 Gbps',
+            poe_watts: 0,
+            down_bps: 0,
+            up_bps: 0
+          });
+        }
+      }
+    }
 
     const pos = layout[swId] || { x: 500, y: 300 };
-    const col = document.createElement('div');
-    col.className = 'ports-column';
-    col.dataset.swid = swId;
-    col.style.left = `${pos.x + 270}px`;
-    col.style.top = `${pos.y}px`;
+    const chassis = document.createElement('div');
+    chassis.className = 'ports-column chassis-faceplate';
+    chassis.dataset.swid = swId;
+    chassis.style.left = `${pos.x - 140}px`;
+    chassis.style.top = `${pos.y + 130}px`;
 
+    // Counters
+    const upCount = ports.filter(p => p.status === 'up').length;
+    const downCount = ports.filter(p => p.status !== 'up').length;
+    const poeWatts = ports.reduce((sum, p) => sum + (p.poe_watts || 0), 0);
+
+    // Header bar
     const header = document.createElement('div');
-    header.className = 'ports-column-header';
+    header.className = 'chassis-header-bar';
     header.innerHTML = `
-      <span><i class="mdi mdi-matrix"></i> ${sw.name} (Ports)</span>
-      <button class="ports-close-btn" onclick="closePortCol('${swId}')"><i class="mdi mdi-close"></i></button>
+      <div class="chassis-title-info">
+        <span class="chassis-vendor-tag"><i class="mdi mdi-server-network"></i> ${sw.vendor || 'ENTERPRISE'} ${sw.model || 'SWITCH'}</span>
+        <span class="chassis-dev-name">${sw.name}</span>
+        <span class="chassis-dev-ip">${sw.ip || ''}</span>
+      </div>
+      <div class="chassis-stats-chips">
+        <span class="chassis-chip up"><i class="mdi mdi-check-circle"></i> ${upCount} UP</span>
+        <span class="chassis-chip down"><i class="mdi mdi-close-circle"></i> ${downCount} DOWN</span>
+        ${poeWatts > 0 ? `<span class="chassis-chip poe"><i class="mdi mdi-flash"></i> ${poeWatts.toFixed(0)}W</span>` : ''}
+      </div>
+      <div class="chassis-actions">
+        ${sw.image_url ? `<button class="chassis-btn-mode" onclick="toggleChassisPhotoView('${swId}')" title="Xem hình ảnh chụp thực tế"><i class="mdi mdi-image"></i> Ảnh Thật</button>` : ''}
+        <button class="chassis-btn-close" onclick="closePortCol('${swId}')" title="Đóng mặt trước switch"><i class="mdi mdi-close"></i></button>
+      </div>
     `;
-    col.appendChild(header);
+    chassis.appendChild(header);
 
-    const list = document.createElement('div');
-    list.className = 'ports-column-list';
+    // Main Body
+    const body = document.createElement('div');
+    body.className = 'chassis-main-body';
 
-    sw.ports.forEach((p) => {
-      const item = document.createElement('div');
-      item.className = `port-matrix-item ${p.status}`;
-      item.dataset.nid = `p_${swId}_${p.port}`;
-      item.dataset.portid = `${swId}_${p.port}`;
+    // Left Rack Ear
+    const leftEar = document.createElement('div');
+    leftEar.className = 'chassis-rack-ear';
+    leftEar.innerHTML = `<span class="chassis-screw-hole"></span><span class="chassis-screw-hole"></span>`;
+    body.appendChild(leftEar);
 
-      const ledClass = p.status === 'up' ? (p.poe_watts > 0 ? 'poe' : 'up') : 'down';
+    // SFP Cage Module (Ports 25-28 or uplinks) - Left side, Image 4 compliant
+    const sfpPorts = ports.filter(p => p.port > 24 || String(p.name).toLowerCase().includes('te') || String(p.name).toLowerCase().includes('sfp'));
+    if (sfpPorts.length > 0) {
+      const sfpModule = document.createElement('div');
+      sfpModule.className = 'chassis-sfp-module';
 
-      item.innerHTML = `
-        <span class="port-led ${ledClass}"></span>
-        <span class="port-number">#${p.port}</span>
-        <span class="port-name">${p.name || `P${p.port}`}</span>
-        <span class="port-traffic">
-          <span style="color:#38bdf8">↓${fmtRate(p.down_bps)}</span><br>
-          <span style="color:#818cf8">↑${fmtRate(p.up_bps)}</span>
-        </span>
-      `;
-      list.appendChild(item);
-    });
+      const topRow = document.createElement('div');
+      topRow.className = 'chassis-sfp-row';
+      const btmRow = document.createElement('div');
+      btmRow.className = 'chassis-sfp-row';
 
-    col.appendChild(list);
-    container.appendChild(col);
+      sfpPorts.forEach((p, idx) => {
+        const portEl = document.createElement('div');
+        portEl.className = `chassis-sfp-port ${p.status === 'up' ? 'up' : 'down'}`;
+        portEl.dataset.nid = `p_${swId}_${p.port}`;
+        portEl.dataset.portid = `${swId}_${p.port}`;
+        portEl.innerHTML = `
+          <span class="sfp-num">${p.port}</span>
+          <span class="sfp-glyph">${p.status === 'up' ? '✓' : '✗'}</span>
+        `;
+        setupPortHover(portEl, p, sw);
+
+        if (p.port % 2 !== 0 || idx % 2 === 0) {
+          topRow.appendChild(portEl);
+        } else {
+          btmRow.appendChild(portEl);
+        }
+      });
+
+      sfpModule.appendChild(topRow);
+      sfpModule.appendChild(btmRow);
+      body.appendChild(sfpModule);
+    }
+
+    // RJ45 Port Matrix Module (Center)
+    const rj45Container = document.createElement('div');
+    rj45Container.className = 'chassis-rj45-container';
+
+    const rj45Ports = ports.filter(p => !sfpPorts.includes(p));
+    const blockSize = 12;
+    for (let b = 0; b < rj45Ports.length; b += blockSize) {
+      const blockPorts = rj45Ports.slice(b, b + blockSize);
+      const blockEl = document.createElement('div');
+      blockEl.className = 'chassis-rj45-block';
+
+      const topRow = document.createElement('div');
+      topRow.className = 'chassis-ports-row';
+      const btmRow = document.createElement('div');
+      btmRow.className = 'chassis-ports-row';
+
+      blockPorts.forEach((p) => {
+        const portEl = document.createElement('div');
+        const isUp = p.status === 'up';
+        const isTop = (p.port % 2 !== 0);
+        const isAmber = (p.port === 1 && isUp) || (p.poe_watts > 0 && p.port <= 2);
+
+        portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} ${isTop ? 'notch-top' : 'notch-bottom'} ${isAmber ? 'highlight-amber' : ''}`;
+        portEl.dataset.nid = `p_${swId}_${p.port}`;
+        portEl.dataset.portid = `${swId}_${p.port}`;
+        portEl.innerHTML = `
+          <span class="port-num">${p.port}</span>
+          <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+        `;
+
+        setupPortHover(portEl, p, sw);
+
+        if (isTop) {
+          topRow.appendChild(portEl);
+        } else {
+          btmRow.appendChild(portEl);
+        }
+      });
+
+      blockEl.appendChild(topRow);
+      blockEl.appendChild(btmRow);
+      rj45Container.appendChild(blockEl);
+    }
+    body.appendChild(rj45Container);
+
+    // Diagnostics Module & Console Port (Far Right)
+    const diagModule = document.createElement('div');
+    diagModule.className = 'chassis-diagnostics-module';
+    diagModule.innerHTML = `
+      <div class="chassis-led-stack">
+        <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>PoE</span></div>
+        <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>Spd</span></div>
+        <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>UID</span></div>
+        <div class="chassis-led-row"><span class="chassis-led-dot green"></span><i class="mdi mdi-pulse" style="font-size:9px;"></i></div>
+      </div>
+      <div class="chassis-console-slot">
+        <div class="chassis-console-jack"></div>
+        <span class="chassis-console-label">Console</span>
+      </div>
+    `;
+    body.appendChild(diagModule);
+
+    // Right Rack Ear
+    const rightEar = document.createElement('div');
+    rightEar.className = 'chassis-rack-ear';
+    rightEar.innerHTML = `<span class="chassis-screw-hole"></span><span class="chassis-screw-hole"></span>`;
+    body.appendChild(rightEar);
+
+    chassis.appendChild(body);
+    container.appendChild(chassis);
   });
 }
+
+function setupPortHover(portEl, portData, swData) {
+  portEl.addEventListener('mouseenter', () => {
+    let tooltip = document.getElementById('chassisPortTooltip');
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.id = 'chassisPortTooltip';
+      tooltip.className = 'chassis-port-tooltip';
+      document.body.appendChild(tooltip);
+    }
+
+    const r = portEl.getBoundingClientRect();
+    const isUp = portData.status === 'up';
+
+    tooltip.innerHTML = `
+      <div style="font-weight:700; color:#38bdf8; font-size:12px; margin-bottom:4px; display:flex; justify-content:space-between; gap:10px;">
+        <span>Cổng #${portData.port}: ${portData.name || ('Port ' + portData.port)}</span>
+        <span style="color:${isUp ? '#22c55e' : '#ef4444'}; font-weight:800;">[${isUp ? 'UP - Online' : 'DOWN'}]</span>
+      </div>
+      <div style="font-size:11px; color:#cbd5e1; line-height:1.6;">
+        <div>• <strong>Tốc độ cổng:</strong> ${portData.speed || '1 Gbps Full-Duplex'}</div>
+        <div>• <strong>Lưu lượng vào:</strong> <span style="color:#38bdf8">↓ ${fmtRate(portData.down_bps || 0)}</span></div>
+        <div>• <strong>Lưu lượng ra:</strong> <span style="color:#818cf8">↑ ${fmtRate(portData.up_bps || 0)}</span></div>
+        ${portData.poe_watts > 0 ? `<div>• <strong>Nguồn PoE:</strong> <span style="color:#eab308">⚡ ${portData.poe_watts} Watts (802.3at PoE+)</span></div>` : ''}
+        ${portData.note ? `<div>• <strong>Ghi chú kết nối:</strong> <span style="color:#fcd34d">${portData.note}</span></div>` : ''}
+      </div>
+    `;
+    tooltip.style.display = 'block';
+    const leftPos = Math.max(10, r.left + r.width / 2 - 110);
+    const topPos = Math.max(10, r.top - tooltip.offsetHeight - 10);
+    tooltip.style.left = `${leftPos}px`;
+    tooltip.style.top = `${topPos}px`;
+  });
+
+  portEl.addEventListener('mouseleave', () => {
+    const tooltip = document.getElementById('chassisPortTooltip');
+    if (tooltip) tooltip.style.display = 'none';
+  });
+}
+
+window.toggleChassisPhotoView = function(swId) {
+  const sw = findDevice(swId);
+  if (!sw || !sw.image_url) return;
+  const chassis = document.querySelector(`.ports-column.chassis-faceplate[data-swid="${swId}"]`);
+  if (!chassis) return;
+  const body = chassis.querySelector('.chassis-main-body');
+  if (!body) return;
+
+  if (body.dataset.mode === 'photo') {
+    body.dataset.mode = 'vector';
+    renderExpandedPorts();
+  } else {
+    body.dataset.mode = 'photo';
+    body.innerHTML = `
+      <div class="chassis-photo-view">
+        <img src="${sw.image_url}" alt="${sw.name}" onerror="this.onerror=null; this.src=''; alert('Không thể nạp link ảnh thiết bị');">
+      </div>
+    `;
+  }
+};
 
 window.closePortCol = function(swId) {
   state.selectedSwitches.delete(swId);
@@ -885,8 +1091,19 @@ function drawLinks() {
   }
 
   // Distribution Links: Core Switch -> Access Switches (or custom parent)
+  // Distribution Links: Core Switch -> Access Switches (or custom parent)
   (t.switches || []).forEach((sw) => {
-    const parentId = sw.parent || 'core';
+    let parentId = sw.parent || 'core';
+    // Nếu Switch cha đang mở mặt trước 1U và switch này có cấu hình parent_port, cắm dây trực tiếp vào cổng đó!
+    if (state.selectedSwitches.has(parentId) && sw.parent_port) {
+      const parentDev = findDevice(parentId);
+      if (parentDev && Array.isArray(parentDev.ports)) {
+        const pMatch = parentDev.ports.find(p => p.name === sw.parent_port || `Gi1/0/${p.port}` === sw.parent_port || `Te1/0/${p.port}` === sw.parent_port || String(p.port) === String(sw.parent_port));
+        if (pMatch) {
+          parentId = `p_${parentId}_${pMatch.port}`;
+        }
+      }
+    }
     linksToDraw.push({
       id: `${parentId}>${sw.id}`,
       from: parentId,
@@ -896,24 +1113,21 @@ function drawLinks() {
       up: sw.up_bps,
       status: sw.status || 'ok'
     });
-
-    if (state.selectedSwitches.has(sw.id)) {
-      (sw.ports || []).forEach((p) => {
-        linksToDraw.push({
-          id: `${sw.id}>p_${sw.id}_${p.port}`,
-          from: sw.id,
-          to: `p_${sw.id}_${p.port}`,
-          bps: (p.down_bps || 0) + (p.up_bps || 0),
-          side: true,
-          status: p.status === 'up' ? 'ok' : 'bad'
-        });
-      });
-    }
   });
 
-  // Infra Links: Parent -> Device
+  // Infra Links: Parent -> Device (Camera, NAS, Server, AP, UPS)
   (t.infrastructure_nodes || []).forEach((n) => {
-    const parentId = n.parent || 'core';
+    let parentId = n.parent || 'core';
+    // Nếu Switch cha đang mở mặt trước 1U và thiết bị này có cấu hình parent_port, cắm dây trực tiếp vào cổng đó!
+    if (state.selectedSwitches.has(parentId) && n.parent_port) {
+      const parentDev = findDevice(parentId);
+      if (parentDev && Array.isArray(parentDev.ports)) {
+        const pMatch = parentDev.ports.find(p => p.name === n.parent_port || `Gi1/0/${p.port}` === n.parent_port || `Te1/0/${p.port}` === n.parent_port || String(p.port) === String(n.parent_port));
+        if (pMatch) {
+          parentId = `p_${parentId}_${pMatch.port}`;
+        }
+      }
+    }
     linksToDraw.push({
       id: `${parentId}>${n.id}`,
       from: parentId,
@@ -1264,8 +1478,21 @@ function initDeviceModalEvents() {
           // Tự động kích hoạt các cảm biến tìm thấy và cập nhật nhãn trạng thái
           if (d.sensors_discovered) {
             const sd = d.sensors_discovered;
+            if (sd.ping) {
+              const chk = document.getElementById('chkSensorPing');
+              if (chk) chk.checked = !!sd.ping.available;
+              const hint = document.getElementById('hintSensorPing');
+              if (hint) hint.innerHTML = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> ICMP (${sd.ping.value})</span>`;
+            }
+            if (sd.uptime) {
+              const chk = document.getElementById('chkSensorUptime');
+              if (chk) chk.checked = !!sd.uptime.available;
+              const hint = document.getElementById('hintSensorUptime');
+              if (hint) hint.innerHTML = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> UpTime: ${sd.uptime.value}</span>`;
+            }
             if (sd.cpu) {
-              document.getElementById('chkSensorCpu').checked = !!sd.cpu.available;
+              const chk = document.getElementById('chkSensorCpu');
+              if (chk) chk.checked = !!sd.cpu.available;
               const hint = document.getElementById('hintSensorCpu');
               if (hint) {
                 hint.innerHTML = sd.cpu.available
@@ -1274,7 +1501,8 @@ function initDeviceModalEvents() {
               }
             }
             if (sd.ram) {
-              document.getElementById('chkSensorRam').checked = !!sd.ram.available;
+              const chk = document.getElementById('chkSensorRam');
+              if (chk) chk.checked = !!sd.ram.available;
               const hint = document.getElementById('hintSensorRam');
               if (hint) {
                 hint.innerHTML = sd.ram.available
@@ -1282,23 +1510,32 @@ function initDeviceModalEvents() {
                   : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Thiết bị không hỗ trợ OID RAM</span>`;
               }
             }
-            if (sd.temp) {
-              document.getElementById('chkSensorTemp').checked = !!sd.temp.available;
+            if (sd.temp || sd.health) {
+              const chk = document.getElementById('chkSensorTemp');
+              if (chk) chk.checked = (sd.temp && sd.temp.available) || (sd.health && sd.health.available);
               const hint = document.getElementById('hintSensorTemp');
               if (hint) {
-                hint.innerHTML = sd.temp.available
-                  ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Cảm biến nhiệt độ (${sd.temp.value}°C)</span>`
-                  : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Không có cảm biến nhiệt</span>`;
+                const tempVal = (sd.temp && sd.temp.value != null) ? `${sd.temp.value}°C` : 'Bình thường';
+                hint.innerHTML = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Sức khỏe & Nhiệt độ (${tempVal})</span>`;
               }
             }
-            if (sd.uptime) {
-              document.getElementById('chkSensorUptime').checked = !!sd.uptime.available;
+            if (sd.vpn) {
+              const chk = document.getElementById('chkSensorVpn');
+              if (chk) chk.checked = !!sd.vpn.available;
+              const hint = document.getElementById('hintSensorVpn');
+              if (hint) hint.innerHTML = sd.vpn.available ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Hỗ trợ giám sát VPN</span>` : `<span style="color:var(--text-dim);">Không có VPN</span>`;
             }
             if (sd.sessions) {
-              document.getElementById('chkSensorSessions').checked = !!sd.sessions.available;
+              const chk = document.getElementById('chkSensorSessions');
+              if (chk) chk.checked = !!sd.sessions.available;
             }
             if (sd.storage) {
-              document.getElementById('chkSensorStorage').checked = !!sd.storage.available;
+              const chk = document.getElementById('chkSensorStorage');
+              if (chk) chk.checked = !!sd.storage.available;
+            }
+            if (sd.poe) {
+              const chk = document.getElementById('chkSensorPoe');
+              if (chk) chk.checked = !!sd.poe.available;
             }
           }
 
@@ -1319,6 +1556,83 @@ function initDeviceModalEvents() {
       }
     }
   });
+
+  // Bulk Sensor Selection actions
+  bindClick('btnSelectAllSensors', () => {
+    ['chkSensorPing', 'chkSensorUptime', 'chkSensorCpu', 'chkSensorRam', 'chkSensorTemp', 'chkSensorVpn', 'chkSensorSessions', 'chkSensorStorage', 'chkSensorPoe'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = true;
+    });
+  });
+  bindClick('btnSelectBasicSensorsOnly', () => {
+    ['chkSensorPing', 'chkSensorUptime'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = true;
+    });
+    ['chkSensorCpu', 'chkSensorRam', 'chkSensorTemp', 'chkSensorVpn', 'chkSensorSessions', 'chkSensorStorage', 'chkSensorPoe'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = false;
+    });
+  });
+  bindClick('btnDeselectAllSensors', () => {
+    ['chkSensorPing', 'chkSensorUptime', 'chkSensorCpu', 'chkSensorRam', 'chkSensorTemp', 'chkSensorVpn', 'chkSensorSessions', 'chkSensorStorage', 'chkSensorPoe'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = false;
+    });
+  });
+
+  // Web Image Search button
+  bindClick('btnSearchDeviceImage', () => {
+    const vendor = (document.getElementById('editDevVendor').value || '').trim();
+    const model = (document.getElementById('editDevModel').value || '').trim();
+    const name = (document.getElementById('editDevName').value || '').trim();
+    const type = document.getElementById('editDevType').value;
+    const query = `${vendor} ${model || name} ${type === 'switch' ? 'switch' : type} front panel faceplate`.trim();
+    window.open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`, '_blank');
+  });
+
+  // Faceplate Preset handler
+  const presetSel = document.getElementById('editDevPresetFaceplate');
+  if (presetSel) {
+    presetSel.addEventListener('change', () => {
+      const v = presetSel.value;
+      if (v === 'cisco_24p') {
+        if (!document.getElementById('editDevVendor').value) document.getElementById('editDevVendor').value = 'Cisco';
+        if (!document.getElementById('editDevModel').value) document.getElementById('editDevModel').value = 'Catalyst 1000-24T-4G';
+      } else if (v === 'cisco_48p') {
+        if (!document.getElementById('editDevVendor').value) document.getElementById('editDevVendor').value = 'Cisco';
+        if (!document.getElementById('editDevModel').value) document.getElementById('editDevModel').value = 'Catalyst 9300-48U';
+      } else if (v === 'sonicwall_fw') {
+        if (!document.getElementById('editDevVendor').value) document.getElementById('editDevVendor').value = 'SonicWall';
+        if (!document.getElementById('editDevModel').value) document.getElementById('editDevModel').value = 'TZ400 / NSa 2700';
+      }
+    });
+  }
+
+  // Parent selection change -> Update Parent Port options
+  const devParentSel = document.getElementById('editDevParent');
+  if (devParentSel) {
+    devParentSel.addEventListener('change', () => {
+      const pPortInput = document.getElementById('editDevParentPort');
+      updateParentPortOptions(pPortInput ? pPortInput.value : '');
+    });
+  }
+
+  // Parent Port select change -> Sync with hidden manual input
+  const pPortSel = document.getElementById('editDevParentPortSelect');
+  if (pPortSel) {
+    pPortSel.addEventListener('change', () => {
+      const pPortInput = document.getElementById('editDevParentPort');
+      if (!pPortInput) return;
+      if (pPortSel.value === '__custom__') {
+        pPortInput.style.display = 'block';
+        pPortInput.focus();
+      } else {
+        pPortInput.style.display = 'none';
+        pPortInput.value = pPortSel.value;
+      }
+    });
+  }
 
   // Bulk Interface Selection actions
   bindClick('btnSelectAllPorts', () => {
@@ -1466,6 +1780,80 @@ function populateParentDropdown(excludeNodeId = null, currentParentId = null) {
   });
 }
 
+function updateParentPortOptions(currentValue) {
+  const parentSelect = document.getElementById('editDevParent');
+  const portSelect = document.getElementById('editDevParentPortSelect');
+  const portInput = document.getElementById('editDevParentPort');
+  if (!parentSelect || !portSelect || !portInput) return;
+
+  const parentId = parentSelect.value;
+  portSelect.innerHTML = '';
+
+  const parentDev = findDevice(parentId);
+  let availablePorts = [];
+
+  if (parentDev && Array.isArray(parentDev.ports) && parentDev.ports.length > 0) {
+    availablePorts = parentDev.ports.map(p => ({
+      val: p.name || `Port ${p.port}`,
+      text: `${p.name || `Port ${p.port}`} [${(p.status || 'down').toUpperCase()}]${p.note ? ` - ${p.note}` : ''}`
+    }));
+  } else if (parentId === 'fw' || (parentDev && parentDev.type === 'firewall')) {
+    ['X0 (LAN)', 'X1 (WAN)', 'X2 (DMZ)', 'X3 (LAN 2)', 'X4', 'X5', 'X6', 'X7'].forEach(p => {
+      const code = p.split(' ')[0];
+      availablePorts.push({ val: code, text: `${p}` });
+    });
+  } else if (parentId === 'core' || (parentDev && parentDev.type === 'core_switch')) {
+    for (let i = 1; i <= 16; i++) {
+      availablePorts.push({ val: `Te1/0/${i}`, text: `Te1/0/${i} (10 Gbps SFP+)` });
+    }
+  } else if (parentDev && parentDev.type === 'switch') {
+    for (let i = 1; i <= 24; i++) {
+      availablePorts.push({ val: `Gi1/0/${i}`, text: `Gi1/0/${i} (1 Gbps)` });
+    }
+    for (let i = 1; i <= 4; i++) {
+      availablePorts.push({ val: `Te1/0/${i}`, text: `Te1/0/${i} (SFP+ Uplink)` });
+    }
+  }
+
+  const defOpt = document.createElement('option');
+  defOpt.value = '';
+  defOpt.textContent = '-- Chọn cổng uplink trên thiết bị cha --';
+  portSelect.appendChild(defOpt);
+
+  availablePorts.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.val;
+    opt.textContent = p.text;
+    portSelect.appendChild(opt);
+  });
+
+  const customOpt = document.createElement('option');
+  customOpt.value = '__custom__';
+  customOpt.textContent = '✍️ Điền tay tùy chỉnh (Custom)...';
+  portSelect.appendChild(customOpt);
+
+  const matched = availablePorts.find(p => p.val === currentValue);
+  if (matched) {
+    portSelect.value = currentValue;
+    portInput.style.display = 'none';
+    portInput.value = currentValue;
+  } else if (currentValue) {
+    portSelect.value = '__custom__';
+    portInput.style.display = 'block';
+    portInput.value = currentValue;
+  } else {
+    if (availablePorts.length > 0) {
+      portSelect.value = availablePorts[0].val;
+      portInput.value = availablePorts[0].val;
+      portInput.style.display = 'none';
+    } else {
+      portSelect.value = '__custom__';
+      portInput.style.display = 'block';
+      portInput.value = '';
+    }
+  }
+}
+
 function setEditDeviceStatusDisplay(status) {
   const displayEl = document.getElementById('editDevStatusDisplay');
   const inputEl = document.getElementById('editDevStatus');
@@ -1548,9 +1936,12 @@ function openCreateDeviceModal() {
   document.getElementById('editDevSnmpCommunity').value = 'public';
   document.getElementById('editDevParentPort').value = 'Te1/0/5';
   document.getElementById('editDevChildPort').value = 'Gi1/0/24';
+  document.getElementById('editDevImage').value = '';
+  document.getElementById('editDevPresetFaceplate').value = 'chassis_auto';
 
   populateZoneDropdown('mdf');
   populateParentDropdown(newId);
+  updateParentPortOptions('Te1/0/5');
   handleDeviceTypeChange('switch');
 
   // Khi thêm mới thiết bị: Ban đầu chưa có dữ liệu cảm biến & cổng mạng thực tế
@@ -1602,9 +1993,12 @@ function openEditDeviceModal(nodeId) {
   setEditDeviceStatusDisplay(dev.status || 'bad');
   document.getElementById('editDevParentPort').value = dev.parent_port || '';
   document.getElementById('editDevChildPort').value = dev.child_port || '';
+  document.getElementById('editDevImage').value = dev.image_url || '';
+  document.getElementById('editDevPresetFaceplate').value = dev.faceplate_preset || 'chassis_auto';
 
   populateZoneDropdown(dev.zone || 'mdf');
   populateParentDropdown(nodeId, dev.parent);
+  updateParentPortOptions(dev.parent_port || '');
 
   const snmp = dev.snmp || { version: '2c', community: 'public', port: 161 };
   document.getElementById('editDevSnmpCommunity').value = snmp.community || 'public';
@@ -1625,12 +2019,15 @@ function openEditDeviceModal(nodeId) {
 
     // Nạp trạng thái tùy chọn giám sát cảm biến đã lưu
     const ms = dev.monitored_sensors || {};
-    document.getElementById('chkSensorCpu').checked = ms.cpu !== undefined ? !!ms.cpu : true;
-    document.getElementById('chkSensorRam').checked = ms.ram !== undefined ? !!ms.ram : true;
-    document.getElementById('chkSensorTemp').checked = ms.temp !== undefined ? !!ms.temp : true;
-    document.getElementById('chkSensorUptime').checked = ms.uptime !== undefined ? !!ms.uptime : true;
-    document.getElementById('chkSensorSessions').checked = ms.sessions !== undefined ? !!ms.sessions : (currentType === 'firewall');
-    document.getElementById('chkSensorStorage').checked = ms.storage !== undefined ? !!ms.storage : (currentType === 'nas' || currentType === 'nvr');
+    if (document.getElementById('chkSensorPing')) document.getElementById('chkSensorPing').checked = ms.ping !== undefined ? !!ms.ping : true;
+    if (document.getElementById('chkSensorUptime')) document.getElementById('chkSensorUptime').checked = ms.uptime !== undefined ? !!ms.uptime : true;
+    if (document.getElementById('chkSensorCpu')) document.getElementById('chkSensorCpu').checked = ms.cpu !== undefined ? !!ms.cpu : true;
+    if (document.getElementById('chkSensorRam')) document.getElementById('chkSensorRam').checked = ms.ram !== undefined ? !!ms.ram : true;
+    if (document.getElementById('chkSensorTemp')) document.getElementById('chkSensorTemp').checked = (ms.temp !== undefined ? !!ms.temp : (ms.health !== undefined ? !!ms.health : true));
+    if (document.getElementById('chkSensorVpn')) document.getElementById('chkSensorVpn').checked = ms.vpn !== undefined ? !!ms.vpn : (currentType === 'firewall');
+    if (document.getElementById('chkSensorSessions')) document.getElementById('chkSensorSessions').checked = ms.sessions !== undefined ? !!ms.sessions : (currentType === 'firewall');
+    if (document.getElementById('chkSensorStorage')) document.getElementById('chkSensorStorage').checked = ms.storage !== undefined ? !!ms.storage : (currentType === 'nas' || currentType === 'nvr');
+    if (document.getElementById('chkSensorPoe')) document.getElementById('chkSensorPoe').checked = ms.poe !== undefined ? !!ms.poe : (currentType === 'switch');
 
     const hintCpu = document.getElementById('hintSensorCpu');
     if (hintCpu) hintCpu.innerHTML = dev.cpu_percent !== undefined ? `Giá trị gần nhất: ${dev.cpu_percent}%` : 'Cisco / SonicWall / Fortinet / HostResources';
@@ -1737,6 +2134,8 @@ async function saveDeviceForm() {
   const parent = document.getElementById('editDevParent').value;
   const parent_port = document.getElementById('editDevParentPort').value.trim();
   const child_port = document.getElementById('editDevChildPort').value.trim();
+  const image_url = (document.getElementById('editDevImage').value || '').trim();
+  const faceplate_preset = document.getElementById('editDevPresetFaceplate') ? document.getElementById('editDevPresetFaceplate').value : 'chassis_auto';
 
   if (!id || !name || !ip) {
     alert('Vui lòng điền đầy đủ Tên thiết bị và Địa chỉ IP!');
@@ -1758,12 +2157,16 @@ async function saveDeviceForm() {
 
   if (isContentVisible) {
     monitored_sensors = {
+      ping: document.getElementById('chkSensorPing') ? document.getElementById('chkSensorPing').checked : true,
+      uptime: document.getElementById('chkSensorUptime') ? document.getElementById('chkSensorUptime').checked : true,
       cpu: document.getElementById('chkSensorCpu') ? document.getElementById('chkSensorCpu').checked : true,
       ram: document.getElementById('chkSensorRam') ? document.getElementById('chkSensorRam').checked : true,
       temp: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
-      uptime: document.getElementById('chkSensorUptime') ? document.getElementById('chkSensorUptime').checked : true,
+      health: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
+      vpn: document.getElementById('chkSensorVpn') ? document.getElementById('chkSensorVpn').checked : false,
       sessions: document.getElementById('chkSensorSessions') ? document.getElementById('chkSensorSessions').checked : false,
-      storage: document.getElementById('chkSensorStorage') ? document.getElementById('chkSensorStorage').checked : false
+      storage: document.getElementById('chkSensorStorage') ? document.getElementById('chkSensorStorage').checked : false,
+      poe: document.getElementById('chkSensorPoe') ? document.getElementById('chkSensorPoe').checked : false
     };
 
     const portRows = document.querySelectorAll('#portsSelectTbody tr');
@@ -1788,7 +2191,8 @@ async function saveDeviceForm() {
   }
 
   const payload = {
-    id, name, type, ip, zone, status, vendor, model, parent, parent_port, child_port, snmp
+    id, name, type, ip, zone, status, vendor, model, parent, parent_port, child_port, snmp,
+    image_url, faceplate_preset
   };
   if (monitored_sensors) payload.monitored_sensors = monitored_sensors;
   if (ports && ports.length > 0) payload.ports = ports;

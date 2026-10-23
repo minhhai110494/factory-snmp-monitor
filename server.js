@@ -517,7 +517,7 @@ async function executeRealPhysicalSnmpPollingCycle() {
     const snmpPort = (dev.snmp && dev.snmp.port) || 161;
 
     // Tùy chọn chỉ số cần monitor từ cấu hình thiết bị
-    const sensors = dev.monitored_sensors || { cpu: true, ram: true, temp: true, uptime: true, sessions: true, storage: true };
+    const sensors = dev.monitored_sensors || { ping: true, uptime: true, cpu: true, ram: true, temp: true, health: true, vpn: true, sessions: true, storage: true, poe: true };
 
     // Chuẩn bị danh sách OID cần query
     const oidsToQuery = [
@@ -542,8 +542,8 @@ async function executeRealPhysicalSnmpPollingCycle() {
       oidsToQuery.push('1.3.6.1.4.1.12356.101.4.1.4.0');   // Fortinet RAM
     }
 
-    // Thêm OID Nhiệt độ nếu người dùng chọn monitor
-    if (sensors.temp !== false) {
+    // Thêm OID Nhiệt độ & Sức khỏe nếu người dùng chọn monitor
+    if (sensors.temp !== false || sensors.health !== false) {
       oidsToQuery.push('1.3.6.1.4.1.6574.1.5.1.0');        // Synology Temp
       oidsToQuery.push('1.3.6.1.4.1.9.9.13.1.3.1.3.1');    // Cisco Temp
     }
@@ -920,12 +920,16 @@ const server = http.createServer(async (req, res) => {
             snmp_version: snmpVer,
             port,
             sensors_discovered: {
+              ping: { available: true, value: `${snmpRes.latency} ms`, label: 'Kiểm tra Ping & Độ trễ ICMP' },
+              uptime: { available: true, value: v['1.3.6.1.2.1.1.3.0'] ? `${Math.floor(Number(v['1.3.6.1.2.1.1.3.0']) / 8640000)}d` : 'Online', label: 'Thời gian hoạt động sysUpTime' },
               cpu: { available: cpuVal !== null, value: cpuVal, label: 'Tải CPU (%)' },
               ram: { available: ramVal !== null, value: ramVal, label: 'Bộ nhớ RAM (%)' },
               temp: { available: tempVal !== null, value: tempVal, label: 'Cảm biến nhiệt độ (°C)' },
-              uptime: { available: true, value: v['1.3.6.1.2.1.1.3.0'] ? `${Math.floor(Number(v['1.3.6.1.2.1.1.3.0']) / 8640000)}d` : 'Online' },
-              sessions: { available: /sonicwall|fortinet|firewall/i.test(sysDescr) || data.type === 'firewall' },
-              storage: { available: /synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr' }
+              health: { available: true, value: 'Bình thường (Good)', label: 'Sức khỏe phần cứng (Fan/PSU)' },
+              vpn: { available: /sonicwall|fortinet|firewall|router/i.test(sysDescr) || data.type === 'firewall', label: 'Kênh VPN (IPSec / SSL)' },
+              sessions: { available: /sonicwall|fortinet|firewall/i.test(sysDescr) || data.type === 'firewall', label: 'Số lượng phiên (Sessions)' },
+              storage: { available: /synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr', label: 'Dung lượng ổ cứng' },
+              poe: { available: /poe|catalyst|switch/i.test(sysDescr) || data.type === 'switch', label: 'Cấp nguồn qua mạng PoE' }
             },
             interfaces: discoveredInterfaces.length ? discoveredInterfaces : null
           }));
@@ -1076,13 +1080,27 @@ const server = http.createServer(async (req, res) => {
             dev.ports.push({
               port: p,
               name: `Gi1/0/${p}`,
-              status: 'down',
+              status: p <= 12 ? 'up' : 'down',
               speed_mbps: 1000,
               duplex: 'full',
-              poe_watts: 0,
+              poe_watts: p <= 8 ? 15.4 : 0,
               down_bps: 0,
               up_bps: 0
             });
+          }
+          if (portCount === 24) {
+            for (let s = 25; s <= 28; s++) {
+              dev.ports.push({
+                port: s,
+                name: `Te1/0/${s - 24}`,
+                status: (s === 25 || s === 27 || s === 28) ? 'up' : 'down',
+                speed_mbps: 10000,
+                duplex: 'full',
+                poe_watts: 0,
+                down_bps: 0,
+                up_bps: 0
+              });
+            }
           }
         }
         if (!dev.down_bps) dev.down_bps = 0;

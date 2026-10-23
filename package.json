@@ -1,6 +1,6 @@
 {
   "name": "factory-snmp-monitor",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Hệ thống Web App Giám sát Mạng Nhà Máy thời gian thực độc lập (Firewall, Switch, Wifi Controller, AP, NAS, NVR, UPS) với sơ đồ Topo động và luồng băng thông",
   "main": "server.js",
   "scripts": {

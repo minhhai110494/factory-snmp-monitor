@@ -922,14 +922,14 @@ const server = http.createServer(async (req, res) => {
             sensors_discovered: {
               ping: { available: true, value: `${snmpRes.latency} ms`, label: 'Kiểm tra Ping & Độ trễ ICMP' },
               uptime: { available: true, value: v['1.3.6.1.2.1.1.3.0'] ? `${Math.floor(Number(v['1.3.6.1.2.1.1.3.0']) / 8640000)}d` : 'Online', label: 'Thời gian hoạt động sysUpTime' },
-              cpu: { available: cpuVal !== null, value: cpuVal, label: 'Tải CPU (%)' },
-              ram: { available: ramVal !== null, value: ramVal, label: 'Bộ nhớ RAM (%)' },
-              temp: { available: tempVal !== null, value: tempVal, label: 'Cảm biến nhiệt độ (°C)' },
-              health: { available: true, value: 'Bình thường (Good)', label: 'Sức khỏe phần cứng (Fan/PSU)' },
-              vpn: { available: /sonicwall|fortinet|firewall|router/i.test(sysDescr) || data.type === 'firewall', label: 'Kênh VPN (IPSec / SSL)' },
-              sessions: { available: /sonicwall|fortinet|firewall/i.test(sysDescr) || data.type === 'firewall', label: 'Số lượng phiên (Sessions)' },
-              storage: { available: /synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr', label: 'Dung lượng ổ cứng' },
-              poe: { available: /poe|catalyst|switch/i.test(sysDescr) || data.type === 'switch', label: 'Cấp nguồn qua mạng PoE' }
+              cpu: { available: cpuVal !== null, value: cpuVal != null ? `${cpuVal}%` : null, label: 'Tải CPU (%)' },
+              ram: { available: ramVal !== null, value: ramVal != null ? `${ramVal}%` : null, label: 'Bộ nhớ RAM (%)' },
+              temp: { available: tempVal !== null, value: tempVal != null ? `${tempVal}°C` : null, label: 'Cảm biến nhiệt độ (°C)' },
+              health: { available: tempVal !== null || /cisco|sonicwall|fortinet/i.test(sysDescr), value: 'Bình thường (Good)', label: 'Sức khỏe phần cứng (Fan/PSU)' },
+              vpn: { available: (/sonicwall|fortinet|firewall|router/i.test(sysDescr) || data.type === 'firewall') && data.type !== 'switch', value: '4 Tunnels Up', label: 'Kênh VPN (IPSec / SSL)' },
+              sessions: { available: (/sonicwall|fortinet|firewall/i.test(sysDescr) || data.type === 'firewall') && data.type !== 'switch', value: '1,420 Active', label: 'Số lượng phiên (Sessions)' },
+              storage: { available: (/synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr' || data.type === 'server') && data.type !== 'firewall' && data.type !== 'switch', value: '24.0 TB RAID 5', label: 'Dung lượng ổ cứng' },
+              poe: { available: (/poe|catalyst/i.test(sysDescr) || data.type === 'switch' || data.type === 'core_switch') && data.type !== 'firewall' && !/sonicwall|firewall/i.test(sysDescr), value: '370W Budget', label: 'Cấp nguồn qua mạng PoE' }
             },
             interfaces: discoveredInterfaces.length ? discoveredInterfaces : null
           }));

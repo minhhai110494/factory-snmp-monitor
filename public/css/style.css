@@ -1050,33 +1050,192 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* Real-Time Port Hover Tooltip */
-.chassis-port-tooltip {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid var(--neon-cyan);
-  border-radius: 8px;
-  padding: 10px 14px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), 0 0 15px rgba(0, 240, 255, 0.2);
-  backdrop-filter: blur(8px);
-  z-index: 100;
-  pointer-events: none;
-  min-width: 230px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #e2e8f0;
+/* Real-Time Port Hover Tooltip (FIXED & HIGH CONTRAST) */
+#chassisPortTooltip.chassis-port-tooltip {
+  position: fixed !important;
+  bottom: auto !important;
+  right: auto !important;
+  background: #090e17 !important;
+  border: 1.5px solid #00f0ff !important;
+  border-radius: 8px !important;
+  padding: 10px 14px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.95), 0 0 18px rgba(0, 240, 255, 0.35) !important;
+  z-index: 999999 !important;
+  pointer-events: none !important;
+  min-width: 250px !important;
+  max-width: 340px !important;
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+  color: #f1f5f9 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace !important;
+  box-sizing: border-box !important;
+  display: none;
 }
 
-.chassis-port-tooltip::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border-width: 6px;
-  border-style: solid;
-  border-color: var(--neon-cyan) transparent transparent transparent;
+.chassis-btn-config {
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  color: var(--neon-cyan);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chassis-btn-config:hover {
+  background: rgba(0, 240, 255, 0.25);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+/* ==========================================================================
+   MULTI-DEVICE HARDWARE CHASSIS SKINS (FIREWALL, NAS, NVR, SERVER, AP, UPS)
+   ========================================================================== */
+
+/* 1. FIREWALL APPLIANCE CHASSIS */
+.ports-column.chassis-faceplate.firewall-skin {
+  border-color: #dc2626;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 45px rgba(0, 0, 0, 0.85), 0 0 15px rgba(220, 38, 38, 0.25);
+}
+.firewall-skin .chassis-vendor-tag {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.2), rgba(185, 28, 28, 0.3));
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.chassis-dpi-block {
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 4px;
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fca5a5;
+}
+
+/* 2. NAS STORAGE CHASSIS (DRIVE CADDIES & TRAYS) */
+.ports-column.chassis-faceplate.nas-skin {
+  border-color: #0284c7;
+}
+.chassis-drive-bays {
+  display: flex;
+  gap: 6px;
+  background: #0d1117;
+  border: 1px solid #1f2937;
+  border-radius: 5px;
+  padding: 5px 8px;
+}
+.chassis-drive-tray {
+  width: 58px;
+  height: 54px;
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  border: 1px solid #374151;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+}
+.chassis-drive-tray:hover {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.35);
+}
+.chassis-drive-tray .tray-handle {
+  height: 4px;
+  background: #475569;
+  border-radius: 2px;
+}
+.chassis-drive-tray .tray-label {
+  font-size: 8px;
+  font-weight: 800;
+  color: #cbd5e1;
+  text-align: center;
+}
+.chassis-drive-tray .tray-led {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 4px #22c55e;
+  align-self: flex-end;
+}
+
+/* 3. NVR SURVEILLANCE CHASSIS */
+.ports-column.chassis-faceplate.nvr-skin {
+  border-color: #059669;
+}
+.chassis-cam-matrix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #091319;
+  border: 1px solid #065f46;
+  border-radius: 4px;
+  padding: 5px 10px;
+}
+.chassis-cam-dots-cluster {
+  display: grid;
+  grid-template-columns: repeat(8, 6px);
+  gap: 4px;
+}
+.chassis-cam-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 3px #10b981;
+}
+
+/* 4. SERVER & UPS LCD BACKLIT PANEL */
+.chassis-lcd-bezel {
+  background: #031e2b;
+  border: 1px solid #0284c7;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: inset 0 0 8px rgba(2, 132, 199, 0.4);
+}
+
+/* 5. ACCESS POINT HALO */
+.chassis-ap-unit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+  background: #0b1320;
+  border: 1px solid #1e3a5f;
+  border-radius: 6px;
+}
+.chassis-ap-halo-ring {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid #00f0ff;
+  box-shadow: 0 0 10px #00f0ff, inset 0 0 8px #00f0ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: apHaloPulse 2s infinite ease-in-out;
+}
+@keyframes apHaloPulse {
+  0%, 100% { opacity: 0.8; transform: scale(0.98); }
+  50% { opacity: 1; transform: scale(1.04); }
 }
 
 /* Device Photo View Mode */

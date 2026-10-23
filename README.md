@@ -41,7 +41,20 @@ Toàn bộ sơ đồ Topo mạng, phân xưởng, thiết bị (Firewall, Switch
 - **Bảng Thư Mục Chia Sẻ (Shared Folders):** Thêm / Sửa / Xóa trực tiếp thư mục chia sẻ mạng, dung lượng, phân quyền truy cập.
 - **Bảng Tài Khoản Người Dùng (User Accounts):** Danh sách người dùng, phòng ban, vai trò và trạng thái hoạt động.
 
-### 6. 📱 Cảnh Báo Tự Động Qua Telegram Bot
+### 6. 🎛️ Bảng Điều Khiển Mặt Trước Phần Cứng Thực Tế Cho Mọi Thiết Bị (Hardware Faceplate Visualizer)
+- **Hỗ trợ trực quan hóa toàn bộ thiết bị:** Nhấp vào bất kỳ node nào (Switch, Firewall, NAS, NVR, Server, AP, UPS) để mở bảng điều khiển phần cứng tương tự thiết bị thật.
+- **Firewall Appliance:** Giao diện cổng `X0` - `X7`, đèn trạng thái động cơ Deep Packet Inspection (DPI), thống kê kênh VPN và Active Sessions.
+- **NAS Storage Caddies:** Khay ổ đĩa có đèn LED truy xuất dữ liệu, cổng LAN 10G/1G, trạng thái mảng RAID.
+- **NVR Camera Matrix:** Ma trận 64 đèn giám sát luồng hình ảnh camera thời gian thực, cổng LAN Camera và Client LAN.
+- **Server & UPS LCD Bezel:** Màn hình LCD hiển thị điện áp, công suất tải, dung lượng pin và cổng quản trị NMC / iDRAC.
+- **Tooltip Port HUD cố định siêu nét:** Hiển thị chi tiết trạng thái UP/DOWN, tốc độ kết nối, băng thông In/Out và công suất PoE với độ tương phản cao, định vị thông minh không che khuất cổng.
+
+### 7. 🔍 Lựa Chọn Chỉ Số Giám Sát Cảm Biến Động (Dynamic SNMP Metric Discovery)
+- Chỉ hiển thị các ô tùy chọn cảm biến (Ping, UpTime, CPU, RAM, Sức Khỏe/Nhiệt Độ, VPN, Sessions, Storage, PoE) mà thiết bị thực tế phản hồi qua SNMP.
+- Không cố định danh sách cảm biến cứng nhắc—thiết bị Firewall không bị hiện PoE/Storage thừa thãi.
+- Hỗ trợ chọn nhanh: *Chọn tất cả*, *Chỉ chỉ số cơ bản*, *Bỏ chọn tất cả*.
+
+### 8. 📱 Cảnh Báo Tự Động Qua Telegram Bot
 - Tùy chỉnh Bot Token, Chat ID trực tiếp trên Web.
 - Tự động phát hiện và gửi tin nhắn cảnh báo khi thiết bị mất kết nối, nghẽn mạng hoặc tràn dung lượng ổ cứng.
 

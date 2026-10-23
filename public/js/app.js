@@ -15,7 +15,9 @@
 const state = {
   topology: null,
   activeZone: 'all',
-  selectedSwitches: new Set(['sw_a']),
+  expandedDevices: new Set(['sw_a']),
+  get selectedSwitches() { return this.expandedDevices; },
+  set selectedSwitches(val) { this.expandedDevices = val; },
   zoom: 0.85,
   panX: 40,
   panY: 30,
@@ -747,26 +749,20 @@ async function saveNodePosition(nodeId, x, y) {
 }
 
 function handleNodeClick(nodeId) {
-  const sw = (state.topology && state.topology.switches || []).find((s) => s.id === nodeId);
-  const isCore = state.topology && state.topology.core_switch && (state.topology.core_switch.id === nodeId || nodeId === 'core');
-  if (sw || isCore) {
-    if (state.selectedSwitches.has(nodeId)) {
-      state.selectedSwitches.delete(nodeId);
-    } else {
-      state.selectedSwitches.add(nodeId);
-    }
-    renderExpandedPorts();
-    scheduleDrawLinks();
-    return;
+  const dev = findDevice(nodeId);
+  if (!dev) return;
+
+  if (state.expandedDevices.has(nodeId)) {
+    state.expandedDevices.delete(nodeId);
+  } else {
+    state.expandedDevices.add(nodeId);
   }
-  openDeviceDrawer(nodeId);
+  renderExpandedPorts();
+  scheduleDrawLinks();
 }
 
 // ============================================================================
-// EXPANDED PORT MATRIX COLUMN
-// ============================================================================
-// ============================================================================
-// 1U RACKMOUNT CHASSIS FACEPLATE VISUALIZER (IMAGE 4 COMPLIANT)
+// UNIVERSAL HARDWARE CHASSIS VISUALIZER (IMAGE 4 & ALL DEVICES COMPLIANT)
 // ============================================================================
 function renderExpandedPorts() {
   const container = document.getElementById('portsColumns');
@@ -777,76 +773,97 @@ function renderExpandedPorts() {
 
   const layout = t.layout || {};
 
-  state.selectedSwitches.forEach((swId) => {
-    let sw = (t.switches || []).find((s) => s.id === swId);
-    if (!sw && t.core_switch && (t.core_switch.id === swId || swId === 'core')) sw = t.core_switch;
-    if (!sw && t.firewall && (t.firewall.id === swId || swId === 'fw')) sw = t.firewall;
-    if (!sw) return;
+  state.expandedDevices.forEach((devId) => {
+    const dev = findDevice(devId);
+    if (!dev) return;
 
-    let ports = sw.ports || [];
-    if (!ports.length) {
-      const totalCount = sw.type === 'firewall' ? 8 : (sw.ports_count || 24);
-      ports = [];
-      for (let i = 1; i <= totalCount; i++) {
-        ports.push({
-          port: i,
-          name: sw.type === 'firewall' ? `X${i-1}` : `Gi1/0/${i}`,
-          status: i <= 8 ? 'up' : 'down',
-          speed: '1 Gbps',
-          poe_watts: (i <= 4 && sw.type !== 'firewall') ? 15.4 : 0,
-          down_bps: 0,
-          up_bps: 0
-        });
-      }
-      if (sw.type === 'switch' && totalCount === 24) {
-        for (let s = 25; s <= 28; s++) {
-          ports.push({
-            port: s,
-            name: `Te1/0/${s - 24}`,
-            status: (s === 25 || s === 27 || s === 28) ? 'up' : 'down',
-            speed: '10 Gbps',
-            poe_watts: 0,
-            down_bps: 0,
-            up_bps: 0
-          });
-        }
-      }
-    }
-
-    const pos = layout[swId] || { x: 500, y: 300 };
+    const pos = layout[devId] || { x: 500, y: 300 };
+    const devType = dev.type || 'switch';
     const chassis = document.createElement('div');
-    chassis.className = 'ports-column chassis-faceplate';
-    chassis.dataset.swid = swId;
+    chassis.className = `ports-column chassis-faceplate ${devType}-skin`;
+    chassis.dataset.swid = devId;
     chassis.style.left = `${pos.x - 140}px`;
     chassis.style.top = `${pos.y + 130}px`;
 
-    // Counters
-    const upCount = ports.filter(p => p.status === 'up').length;
-    const downCount = ports.filter(p => p.status !== 'up').length;
-    const poeWatts = ports.reduce((sum, p) => sum + (p.poe_watts || 0), 0);
-
-    // Header bar
+    // 1. Header Bar
     const header = document.createElement('div');
     header.className = 'chassis-header-bar';
-    header.innerHTML = `
-      <div class="chassis-title-info">
-        <span class="chassis-vendor-tag"><i class="mdi mdi-server-network"></i> ${sw.vendor || 'ENTERPRISE'} ${sw.model || 'SWITCH'}</span>
-        <span class="chassis-dev-name">${sw.name}</span>
-        <span class="chassis-dev-ip">${sw.ip || ''}</span>
-      </div>
-      <div class="chassis-stats-chips">
+
+    let vendorIcon = 'mdi-server-network';
+    if (devType === 'firewall') vendorIcon = 'mdi-shield-lock';
+    else if (devType === 'nas') vendorIcon = 'mdi-harddisk';
+    else if (devType === 'nvr') vendorIcon = 'mdi-cctv';
+    else if (devType === 'ap') vendorIcon = 'mdi-wifi';
+    else if (devType === 'ups') vendorIcon = 'mdi-battery-charging';
+    else if (devType === 'isp') vendorIcon = 'mdi-earth';
+
+    let chipsHtml = '';
+    if (devType === 'firewall') {
+      chipsHtml = `
+        <span class="chassis-chip up"><i class="mdi mdi-shield-check"></i> BẢO MẬT: CHỦ ĐỘNG</span>
+        <span class="chassis-chip poe"><i class="mdi mdi-swap-horizontal"></i> ${(dev.sessions || 1420).toLocaleString()} PHIÊN</span>
+        <span class="chassis-chip up"><i class="mdi mdi-vpn"></i> VPN: 4 KÊNH</span>
+      `;
+    } else if (devType === 'nas') {
+      chipsHtml = `
+        <span class="chassis-chip up"><i class="mdi mdi-check-circle"></i> RAID 5 (4x 8TB)</span>
+        <span class="chassis-chip poe"><i class="mdi mdi-harddisk"></i> ${(dev.nas_details && dev.nas_details.storage_used_tb) || 18.5}/${(dev.nas_details && dev.nas_details.storage_total_tb) || 24} TB</span>
+        <span class="chassis-chip down"><i class="mdi mdi-thermometer"></i> 38°C</span>
+      `;
+    } else if (devType === 'nvr') {
+      chipsHtml = `
+        <span class="chassis-chip up"><i class="mdi mdi-cctv"></i> ${(dev.nvr_details && dev.nvr_details.active_channels) || 48}/${(dev.nvr_details && dev.nvr_details.total_channels) || 64} CAMS GHI HÌNH</span>
+        <span class="chassis-chip poe"><i class="mdi mdi-harddisk"></i> ${(dev.nvr_details && dev.nvr_details.storage_total_tb) || 32} TB</span>
+        <span class="chassis-chip down">H.265+ SMART</span>
+      `;
+    } else if (devType === 'server') {
+      chipsHtml = `
+        <span class="chassis-chip up"><i class="mdi mdi-cpu-64-bit"></i> CPU ${dev.cpu || 25}%</span>
+        <span class="chassis-chip poe"><i class="mdi mdi-memory"></i> RAM ${dev.ram || 40}%</span>
+        <span class="chassis-chip down"><i class="mdi mdi-power-plug"></i> DUAL PSU [OK]</span>
+      `;
+    } else if (devType === 'ap') {
+      chipsHtml = `
+        <span class="chassis-chip up"><i class="mdi mdi-wifi-check"></i> 32 CLIENTS KẾT NỐI</span>
+        <span class="chassis-chip poe"><i class="mdi mdi-flash"></i> PoE+ (18.5W)</span>
+        <span class="chassis-chip down">WiFi 6 (AX)</span>
+      `;
+    } else if (devType === 'ups') {
+      chipsHtml = `
+        <span class="chassis-chip up"><i class="mdi mdi-battery-charging-100"></i> PIN: 100% (45 MINS)</span>
+        <span class="chassis-chip poe"><i class="mdi mdi-flash"></i> TẢI: 35% (525W)</span>
+        <span class="chassis-chip down">228V AC ONLINE</span>
+      `;
+    } else {
+      const ports = dev.ports || [];
+      const upCount = ports.filter(p => p.status === 'up').length;
+      const downCount = ports.filter(p => p.status !== 'up').length;
+      const poeWatts = ports.reduce((sum, p) => sum + (p.poe_watts || 0), 0);
+      chipsHtml = `
         <span class="chassis-chip up"><i class="mdi mdi-check-circle"></i> ${upCount} UP</span>
         <span class="chassis-chip down"><i class="mdi mdi-close-circle"></i> ${downCount} DOWN</span>
         ${poeWatts > 0 ? `<span class="chassis-chip poe"><i class="mdi mdi-flash"></i> ${poeWatts.toFixed(0)}W</span>` : ''}
+      `;
+    }
+
+    header.innerHTML = `
+      <div class="chassis-title-info">
+        <span class="chassis-vendor-tag"><i class="mdi ${vendorIcon}"></i> ${dev.vendor || 'ENTERPRISE'} ${dev.model || devType.toUpperCase()}</span>
+        <span class="chassis-dev-name">${escapeHtml(dev.name)}</span>
+        <span class="chassis-dev-ip">${escapeHtml(dev.ip || '')}</span>
+      </div>
+      <div class="chassis-stats-chips">
+        ${chipsHtml}
       </div>
       <div class="chassis-actions">
-        ${sw.image_url ? `<button class="chassis-btn-mode" onclick="toggleChassisPhotoView('${swId}')" title="Xem hình ảnh chụp thực tế"><i class="mdi mdi-image"></i> Ảnh Thật</button>` : ''}
-        <button class="chassis-btn-close" onclick="closePortCol('${swId}')" title="Đóng mặt trước switch"><i class="mdi mdi-close"></i></button>
+        <button class="chassis-btn-config" onclick="openEditDeviceModal('${dev.id}')" title="Chỉnh sửa cấu hình thiết bị này"><i class="mdi mdi-cog"></i> Cấu Hình</button>
+        ${dev.image_url ? `<button class="chassis-btn-mode" onclick="toggleChassisPhotoView('${dev.id}')" title="Xem hình ảnh chụp thực tế"><i class="mdi mdi-image"></i> Ảnh Thật</button>` : ''}
+        <button class="chassis-btn-close" onclick="closePortCol('${dev.id}')" title="Đóng bảng điều khiển thiết bị"><i class="mdi mdi-close"></i></button>
       </div>
     `;
     chassis.appendChild(header);
 
-    // Main Body
+    // 2. Main Body
     const body = document.createElement('div');
     body.className = 'chassis-main-body';
 
@@ -856,101 +873,22 @@ function renderExpandedPorts() {
     leftEar.innerHTML = `<span class="chassis-screw-hole"></span><span class="chassis-screw-hole"></span>`;
     body.appendChild(leftEar);
 
-    // SFP Cage Module (Ports 25-28 or uplinks) - Left side, Image 4 compliant
-    const sfpPorts = ports.filter(p => p.port > 24 || String(p.name).toLowerCase().includes('te') || String(p.name).toLowerCase().includes('sfp'));
-    if (sfpPorts.length > 0) {
-      const sfpModule = document.createElement('div');
-      sfpModule.className = 'chassis-sfp-module';
-
-      const topRow = document.createElement('div');
-      topRow.className = 'chassis-sfp-row';
-      const btmRow = document.createElement('div');
-      btmRow.className = 'chassis-sfp-row';
-
-      sfpPorts.forEach((p, idx) => {
-        const portEl = document.createElement('div');
-        portEl.className = `chassis-sfp-port ${p.status === 'up' ? 'up' : 'down'}`;
-        portEl.dataset.nid = `p_${swId}_${p.port}`;
-        portEl.dataset.portid = `${swId}_${p.port}`;
-        portEl.innerHTML = `
-          <span class="sfp-num">${p.port}</span>
-          <span class="sfp-glyph">${p.status === 'up' ? '✓' : '✗'}</span>
-        `;
-        setupPortHover(portEl, p, sw);
-
-        if (p.port % 2 !== 0 || idx % 2 === 0) {
-          topRow.appendChild(portEl);
-        } else {
-          btmRow.appendChild(portEl);
-        }
-      });
-
-      sfpModule.appendChild(topRow);
-      sfpModule.appendChild(btmRow);
-      body.appendChild(sfpModule);
+    // Specialized module per device type:
+    if (devType === 'firewall') {
+      renderFirewallPanel(body, dev);
+    } else if (devType === 'nas') {
+      renderNasPanel(body, dev);
+    } else if (devType === 'nvr') {
+      renderNvrPanel(body, dev);
+    } else if (devType === 'server') {
+      renderServerPanel(body, dev);
+    } else if (devType === 'ap') {
+      renderApPanel(body, dev);
+    } else if (devType === 'ups') {
+      renderUpsPanel(body, dev);
+    } else {
+      renderSwitchPanel(body, dev);
     }
-
-    // RJ45 Port Matrix Module (Center)
-    const rj45Container = document.createElement('div');
-    rj45Container.className = 'chassis-rj45-container';
-
-    const rj45Ports = ports.filter(p => !sfpPorts.includes(p));
-    const blockSize = 12;
-    for (let b = 0; b < rj45Ports.length; b += blockSize) {
-      const blockPorts = rj45Ports.slice(b, b + blockSize);
-      const blockEl = document.createElement('div');
-      blockEl.className = 'chassis-rj45-block';
-
-      const topRow = document.createElement('div');
-      topRow.className = 'chassis-ports-row';
-      const btmRow = document.createElement('div');
-      btmRow.className = 'chassis-ports-row';
-
-      blockPorts.forEach((p) => {
-        const portEl = document.createElement('div');
-        const isUp = p.status === 'up';
-        const isTop = (p.port % 2 !== 0);
-        const isAmber = (p.port === 1 && isUp) || (p.poe_watts > 0 && p.port <= 2);
-
-        portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} ${isTop ? 'notch-top' : 'notch-bottom'} ${isAmber ? 'highlight-amber' : ''}`;
-        portEl.dataset.nid = `p_${swId}_${p.port}`;
-        portEl.dataset.portid = `${swId}_${p.port}`;
-        portEl.innerHTML = `
-          <span class="port-num">${p.port}</span>
-          <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
-        `;
-
-        setupPortHover(portEl, p, sw);
-
-        if (isTop) {
-          topRow.appendChild(portEl);
-        } else {
-          btmRow.appendChild(portEl);
-        }
-      });
-
-      blockEl.appendChild(topRow);
-      blockEl.appendChild(btmRow);
-      rj45Container.appendChild(blockEl);
-    }
-    body.appendChild(rj45Container);
-
-    // Diagnostics Module & Console Port (Far Right)
-    const diagModule = document.createElement('div');
-    diagModule.className = 'chassis-diagnostics-module';
-    diagModule.innerHTML = `
-      <div class="chassis-led-stack">
-        <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>PoE</span></div>
-        <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>Spd</span></div>
-        <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>UID</span></div>
-        <div class="chassis-led-row"><span class="chassis-led-dot green"></span><i class="mdi mdi-pulse" style="font-size:9px;"></i></div>
-      </div>
-      <div class="chassis-console-slot">
-        <div class="chassis-console-jack"></div>
-        <span class="chassis-console-label">Console</span>
-      </div>
-    `;
-    body.appendChild(diagModule);
 
     // Right Rack Ear
     const rightEar = document.createElement('div');
@@ -963,6 +901,475 @@ function renderExpandedPorts() {
   });
 }
 
+// ----------------------------------------------------------------------------
+// CHASSIS SUB-PANEL BUILDERS
+// ----------------------------------------------------------------------------
+function renderSwitchPanel(body, dev) {
+  let ports = dev.ports || [];
+  if (!ports.length) {
+    const totalCount = dev.ports_count || 24;
+    ports = [];
+    for (let i = 1; i <= totalCount; i++) {
+      ports.push({
+        port: i,
+        name: `Gi1/0/${i}`,
+        status: i <= 10 ? 'up' : 'down',
+        speed: '1 Gbps',
+        poe_watts: i <= 4 ? 15.4 : 0,
+        down_bps: 0,
+        up_bps: 0
+      });
+    }
+    if (totalCount === 24) {
+      for (let s = 25; s <= 28; s++) {
+        ports.push({
+          port: s,
+          name: `Te1/0/${s - 24}`,
+          status: (s === 25 || s === 27 || s === 28) ? 'up' : 'down',
+          speed: '10 Gbps',
+          poe_watts: 0,
+          down_bps: 0,
+          up_bps: 0
+        });
+      }
+    }
+  }
+
+  // SFP Cage Module (Ports 25-28 or uplinks) - Left side (Image 4 compliant)
+  const sfpPorts = ports.filter(p => p.port > 24 || String(p.name).toLowerCase().includes('te') || String(p.name).toLowerCase().includes('sfp'));
+  if (sfpPorts.length > 0) {
+    const sfpModule = document.createElement('div');
+    sfpModule.className = 'chassis-sfp-module';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'chassis-sfp-row';
+    const btmRow = document.createElement('div');
+    btmRow.className = 'chassis-sfp-row';
+
+    sfpPorts.forEach((p, idx) => {
+      const portEl = document.createElement('div');
+      portEl.className = `chassis-sfp-port ${p.status === 'up' ? 'up' : 'down'}`;
+      portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+      portEl.dataset.portid = `${dev.id}_${p.port}`;
+      portEl.innerHTML = `
+        <span class="sfp-num">${p.port}</span>
+        <span class="sfp-glyph">${p.status === 'up' ? '✓' : '✗'}</span>
+      `;
+      setupPortHover(portEl, p, dev);
+
+      if (p.port % 2 !== 0 || idx % 2 === 0) {
+        topRow.appendChild(portEl);
+      } else {
+        btmRow.appendChild(portEl);
+      }
+    });
+
+    sfpModule.appendChild(topRow);
+    sfpModule.appendChild(btmRow);
+    body.appendChild(sfpModule);
+  }
+
+  // RJ45 Port Matrix Module (Center)
+  const rj45Container = document.createElement('div');
+  rj45Container.className = 'chassis-rj45-container';
+
+  const rj45Ports = ports.filter(p => !sfpPorts.includes(p));
+  const blockSize = 12;
+  for (let b = 0; b < rj45Ports.length; b += blockSize) {
+    const blockPorts = rj45Ports.slice(b, b + blockSize);
+    const blockEl = document.createElement('div');
+    blockEl.className = 'chassis-rj45-block';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'chassis-ports-row';
+    const btmRow = document.createElement('div');
+    btmRow.className = 'chassis-ports-row';
+
+    blockPorts.forEach((p) => {
+      const portEl = document.createElement('div');
+      const isUp = p.status === 'up';
+      const isTop = (p.port % 2 !== 0);
+      const isAmber = (p.port === 1 && isUp) || (p.poe_watts > 0 && p.port <= 2);
+
+      portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} ${isTop ? 'notch-top' : 'notch-bottom'} ${isAmber ? 'highlight-amber' : ''}`;
+      portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+      portEl.dataset.portid = `${dev.id}_${p.port}`;
+      portEl.innerHTML = `
+        <span class="port-num">${p.port}</span>
+        <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+      `;
+
+      setupPortHover(portEl, p, dev);
+
+      if (isTop) {
+        topRow.appendChild(portEl);
+      } else {
+        btmRow.appendChild(portEl);
+      }
+    });
+
+    blockEl.appendChild(topRow);
+    blockEl.appendChild(btmRow);
+    rj45Container.appendChild(blockEl);
+  }
+  body.appendChild(rj45Container);
+
+  // Diagnostics & Console (Right)
+  const diagModule = document.createElement('div');
+  diagModule.className = 'chassis-diagnostics-module';
+  diagModule.innerHTML = `
+    <div class="chassis-led-stack">
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>PoE</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>Spd</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>UID</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><i class="mdi mdi-pulse" style="font-size:9px;"></i></div>
+    </div>
+    <div class="chassis-console-slot">
+      <div class="chassis-console-jack"></div>
+      <span class="chassis-console-label">Console</span>
+    </div>
+  `;
+  body.appendChild(diagModule);
+}
+
+function renderFirewallPanel(body, dev) {
+  let ports = dev.ports || [];
+  if (!ports.length) {
+    const defaultFwPorts = [
+      { port: 1, name: 'X0 (LAN)', status: 'up', speed: '1 Gbps', down_bps: dev.down_bps || 4500000, up_bps: dev.up_bps || 1200000, note: 'Uplink Core Switch' },
+      { port: 2, name: 'X1 (WAN)', status: 'up', speed: '1 Gbps', down_bps: dev.down_bps || 4500000, up_bps: dev.up_bps || 1200000, note: 'Internet Fiber VNPT' },
+      { port: 3, name: 'X2 (DMZ)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Public Servers' },
+      { port: 4, name: 'X3 (LAN 2)', status: 'up', speed: '1 Gbps', down_bps: 250000, up_bps: 50000, note: 'Văn Phòng / Ban Giám Đốc' },
+      { port: 5, name: 'X4 (VoIP)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Tổng đài IP PBX' },
+      { port: 6, name: 'X5 (Mgmt)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Quản trị bảo mật OOB' },
+      { port: 7, name: 'X6 (WAN 2)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Dự phòng Viettel' },
+      { port: 8, name: 'X7 (SFP+)', status: 'up', speed: '10 Gbps', down_bps: 890000, up_bps: 320000, note: '10G Fiber Uplink' }
+    ];
+    ports = defaultFwPorts;
+  }
+
+  // Firewall Ports Matrix (X0 - X7)
+  const portsBlock = document.createElement('div');
+  portsBlock.className = 'chassis-rj45-block';
+  const topRow = document.createElement('div');
+  topRow.className = 'chassis-ports-row';
+  const btmRow = document.createElement('div');
+  btmRow.className = 'chassis-ports-row';
+
+  ports.forEach((p, idx) => {
+    const portEl = document.createElement('div');
+    const isUp = p.status === 'up';
+    const isTop = (idx % 2 === 0);
+
+    portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} ${isTop ? 'notch-top' : 'notch-bottom'} ${idx === 1 ? 'highlight-amber' : ''}`;
+    portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+    portEl.dataset.portid = `${dev.id}_${p.port}`;
+    portEl.innerHTML = `
+      <span class="port-num">${p.name || ('X' + (p.port - 1))}</span>
+      <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+    `;
+    setupPortHover(portEl, p, dev);
+
+    if (isTop) topRow.appendChild(portEl);
+    else btmRow.appendChild(portEl);
+  });
+  portsBlock.appendChild(topRow);
+  portsBlock.appendChild(btmRow);
+  body.appendChild(portsBlock);
+
+  // Security DPI Engine Block
+  const secBlock = document.createElement('div');
+  secBlock.className = 'chassis-dpi-block';
+  secBlock.innerHTML = `
+    <i class="mdi mdi-shield-check" style="font-size:22px; color:#ef4444;"></i>
+    <div>
+      <div>SONICWALL REASSEMBLY-FREE DPI™</div>
+      <div style="font-size:9px; color:#94a3b8; font-weight:normal;">Gateway AV · Anti-Spyware · IPS Active</div>
+    </div>
+  `;
+  body.appendChild(secBlock);
+
+  // Diagnostic LEDs (Right)
+  const diagModule = document.createElement('div');
+  diagModule.className = 'chassis-diagnostics-module';
+  diagModule.innerHTML = `
+    <div class="chassis-led-stack">
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>PWR</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>SYS</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>VPN</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot amber"></span><span>ALM</span></div>
+    </div>
+    <div class="chassis-console-slot">
+      <div class="chassis-console-jack"></div>
+      <span class="chassis-console-label">Console</span>
+    </div>
+  `;
+  body.appendChild(diagModule);
+}
+
+function renderNasPanel(body, dev) {
+  // Drive Bays Section (4 to 8 Caddies)
+  const baysContainer = document.createElement('div');
+  baysContainer.className = 'chassis-drive-bays';
+
+  for (let b = 1; b <= 4; b++) {
+    const bayEl = document.createElement('div');
+    bayEl.className = 'chassis-drive-tray';
+    bayEl.innerHTML = `
+      <div class="tray-handle"></div>
+      <div class="tray-label">BAY ${b}<br><span style="color:#34d399; font-size:7px;">8TB NORMAL</span></div>
+      <div class="tray-led"></div>
+    `;
+    bayEl.title = `Khay ổ đĩa ${b}: Seagate IronWolf Enterprise 8TB (SMART OK - 38°C)`;
+    baysContainer.appendChild(bayEl);
+  }
+  body.appendChild(baysContainer);
+
+  // NAS Network Interfaces
+  const nasPorts = [
+    { port: 1, name: 'LAN 1 (10G)', status: 'up', speed: '10 Gbps', down_bps: dev.down_bps || 12000000, up_bps: dev.up_bps || 5400000, note: 'Backup Data Trunk' },
+    { port: 2, name: 'LAN 2 (10G)', status: 'down', speed: '10 Gbps', down_bps: 0, up_bps: 0, note: 'iSCSI Target' },
+    { port: 3, name: 'LAN 3 (1G)', status: 'up', speed: '1 Gbps', down_bps: 45000, up_bps: 12000, note: 'DSM Quản Trị' },
+    { port: 4, name: 'LAN 4 (1G)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Failover' }
+  ];
+
+  const portsBlock = document.createElement('div');
+  portsBlock.className = 'chassis-rj45-block';
+  const topRow = document.createElement('div');
+  topRow.className = 'chassis-ports-row';
+  const btmRow = document.createElement('div');
+  btmRow.className = 'chassis-ports-row';
+
+  nasPorts.forEach((p, idx) => {
+    const portEl = document.createElement('div');
+    const isUp = p.status === 'up';
+    const isTop = (idx % 2 === 0);
+
+    portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} ${isTop ? 'notch-top' : 'notch-bottom'}`;
+    portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+    portEl.dataset.portid = `${dev.id}_${p.port}`;
+    portEl.innerHTML = `
+      <span class="port-num">${p.port}</span>
+      <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+    `;
+    setupPortHover(portEl, p, dev);
+
+    if (isTop) topRow.appendChild(portEl);
+    else btmRow.appendChild(portEl);
+  });
+  portsBlock.appendChild(topRow);
+  portsBlock.appendChild(btmRow);
+  body.appendChild(portsBlock);
+
+  // Status LEDs (Right)
+  const diagModule = document.createElement('div');
+  diagModule.className = 'chassis-diagnostics-module';
+  diagModule.innerHTML = `
+    <div class="chassis-led-stack">
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>STATUS</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>ALERT</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>LAN1/2</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>POWER</span></div>
+    </div>
+  `;
+  body.appendChild(diagModule);
+}
+
+function renderNvrPanel(body, dev) {
+  // 64-Channel Camera Activity Cluster
+  const camBlock = document.createElement('div');
+  camBlock.className = 'chassis-cam-matrix';
+  camBlock.innerHTML = `
+    <div class="chassis-cam-dots-cluster">
+      ${Array.from({ length: 32 }).map(() => `<span class="chassis-cam-dot"></span>`).join('')}
+    </div>
+    <div style="font-size:10px; font-weight:700; color:#10b981; line-height:1.3;">
+      <div>48 / 64 CHANNELS REC</div>
+      <div style="font-size:8px; color:#94a3b8; font-weight:normal;">Subnet 192.168.20.0/24</div>
+    </div>
+  `;
+  body.appendChild(camBlock);
+
+  // NVR Network Ports
+  const nvrPorts = [
+    { port: 1, name: 'LAN 1 (CAM NET)', status: 'up', speed: '1 Gbps', down_bps: dev.down_bps || 45000000, up_bps: 120000, note: 'Mạng Camera Nhà Máy' },
+    { port: 2, name: 'LAN 2 (CLIENT/APP)', status: 'up', speed: '1 Gbps', down_bps: 250000, up_bps: dev.up_bps || 24000000, note: 'Xem Trực Tuyến Live View' }
+  ];
+
+  const portsBlock = document.createElement('div');
+  portsBlock.className = 'chassis-rj45-block';
+  const row = document.createElement('div');
+  row.className = 'chassis-ports-row';
+
+  nvrPorts.forEach((p) => {
+    const portEl = document.createElement('div');
+    const isUp = p.status === 'up';
+    portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} notch-top highlight-amber`;
+    portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+    portEl.dataset.portid = `${dev.id}_${p.port}`;
+    portEl.innerHTML = `
+      <span class="port-num">${p.port}</span>
+      <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+    `;
+    setupPortHover(portEl, p, dev);
+    row.appendChild(portEl);
+  });
+  portsBlock.appendChild(row);
+  body.appendChild(portsBlock);
+
+  // Status LEDs (Right)
+  const diagModule = document.createElement('div');
+  diagModule.className = 'chassis-diagnostics-module';
+  diagModule.innerHTML = `
+    <div class="chassis-led-stack">
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>REC</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>NET</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>HDD</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot amber"></span><span>ALM</span></div>
+    </div>
+  `;
+  body.appendChild(diagModule);
+}
+
+function renderServerPanel(body, dev) {
+  // LCD Bezel Display
+  const lcd = document.createElement('div');
+  lcd.className = 'chassis-lcd-bezel';
+  lcd.innerHTML = `
+    <i class="mdi mdi-server" style="font-size:18px; color:#38bdf8;"></i>
+    <div>
+      <div>DELL POWEREDGE ENTERPRISE SERVER</div>
+      <div style="font-size:9px; color:#94a3b8; font-weight:normal;">OS: Ubuntu 24.04 LTS · Uptime: 145d · All Services [OK]</div>
+    </div>
+  `;
+  body.appendChild(lcd);
+
+  // Server Network Ports (iDRAC, NIC 1..4)
+  const srvPorts = [
+    { port: 1, name: 'iDRAC (Mgmt)', status: 'up', speed: '1 Gbps', down_bps: 12000, up_bps: 4000, note: 'Dedicated Remote Management' },
+    { port: 2, name: 'NIC 1 (10G)', status: 'up', speed: '10 Gbps', down_bps: dev.down_bps || 8500000, up_bps: dev.up_bps || 3400000, note: 'MES Production Traffic' },
+    { port: 3, name: 'NIC 2 (10G)', status: 'down', speed: '10 Gbps', down_bps: 0, up_bps: 0, note: 'LACP Team Redundancy' },
+    { port: 4, name: 'NIC 3 (1G)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Backup Net' }
+  ];
+
+  const portsBlock = document.createElement('div');
+  portsBlock.className = 'chassis-rj45-block';
+  const row = document.createElement('div');
+  row.className = 'chassis-ports-row';
+
+  srvPorts.forEach((p) => {
+    const portEl = document.createElement('div');
+    const isUp = p.status === 'up';
+    portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} notch-top`;
+    portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+    portEl.dataset.portid = `${dev.id}_${p.port}`;
+    portEl.innerHTML = `
+      <span class="port-num">${p.port}</span>
+      <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+    `;
+    setupPortHover(portEl, p, dev);
+    row.appendChild(portEl);
+  });
+  portsBlock.appendChild(row);
+  body.appendChild(portsBlock);
+
+  // Redundant Power LEDs
+  const diagModule = document.createElement('div');
+  diagModule.className = 'chassis-diagnostics-module';
+  diagModule.innerHTML = `
+    <div class="chassis-led-stack">
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>PSU 1 [OK]</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot green"></span><span>PSU 2 [OK]</span></div>
+      <div class="chassis-led-row"><span class="chassis-led-dot cyan"></span><span>FAN [OK]</span></div>
+    </div>
+  `;
+  body.appendChild(diagModule);
+}
+
+function renderApPanel(body, dev) {
+  const apUnit = document.createElement('div');
+  apUnit.className = 'chassis-ap-unit';
+  apUnit.innerHTML = `
+    <div class="chassis-ap-halo-ring">
+      <i class="mdi mdi-wifi" style="color:#00f0ff; font-size:16px;"></i>
+    </div>
+    <div style="font-size:11px; line-height:1.4;">
+      <strong style="color:#38bdf8;">ARUBA WIFI 6 ENTERPRISE AP</strong><br>
+      <span style="color:#94a3b8; font-size:10px;">SSID: Factory_Prod / Guest · 32 Clients</span>
+    </div>
+  `;
+  body.appendChild(apUnit);
+
+  // AP Ports
+  const apPorts = [
+    { port: 1, name: 'ETH 0 (PoE+ In)', status: 'up', speed: '2.5 Gbps', down_bps: dev.down_bps || 14000000, up_bps: dev.up_bps || 6200000, poe_watts: 18.5, note: 'Nối Switch PoE Cấp Nguồn' },
+    { port: 2, name: 'ETH 1 (Pass-thru)', status: 'down', speed: '1 Gbps', down_bps: 0, up_bps: 0, note: 'Cổng phụ Passthrough' }
+  ];
+
+  const portsBlock = document.createElement('div');
+  portsBlock.className = 'chassis-rj45-block';
+  const row = document.createElement('div');
+  row.className = 'chassis-ports-row';
+
+  apPorts.forEach((p) => {
+    const portEl = document.createElement('div');
+    const isUp = p.status === 'up';
+    portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} notch-top highlight-amber`;
+    portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+    portEl.dataset.portid = `${dev.id}_${p.port}`;
+    portEl.innerHTML = `
+      <span class="port-num">${p.port}</span>
+      <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+    `;
+    setupPortHover(portEl, p, dev);
+    row.appendChild(portEl);
+  });
+  portsBlock.appendChild(row);
+  body.appendChild(portsBlock);
+}
+
+function renderUpsPanel(body, dev) {
+  const lcd = document.createElement('div');
+  lcd.className = 'chassis-lcd-bezel';
+  lcd.innerHTML = `
+    <i class="mdi mdi-battery-charging" style="font-size:20px; color:#22c55e;"></i>
+    <div>
+      <div>APC SMART-UPS ONLINE LCD</div>
+      <div style="font-size:9px; color:#94a3b8; font-weight:normal;">Pin: 100% (45m runtime) · Tải: 35% (525W) · 228V IN</div>
+    </div>
+  `;
+  body.appendChild(lcd);
+
+  // NMC Management Port
+  const upsPorts = [
+    { port: 1, name: 'NMC RJ45 (Network Mgmt)', status: 'up', speed: '100 Mbps', down_bps: 8000, up_bps: 3000, note: 'Card Giám Sát Mạng SNMP' }
+  ];
+
+  const portsBlock = document.createElement('div');
+  portsBlock.className = 'chassis-rj45-block';
+  const row = document.createElement('div');
+  row.className = 'chassis-ports-row';
+
+  upsPorts.forEach((p) => {
+    const portEl = document.createElement('div');
+    const isUp = p.status === 'up';
+    portEl.className = `chassis-rj45-port ${isUp ? 'status-up' : 'status-down'} notch-top`;
+    portEl.dataset.nid = `p_${dev.id}_${p.port}`;
+    portEl.dataset.portid = `${dev.id}_${p.port}`;
+    portEl.innerHTML = `
+      <span class="port-num">NMC</span>
+      <span class="port-glyph">${isUp ? '✓' : '✗'}</span>
+    `;
+    setupPortHover(portEl, p, dev);
+    row.appendChild(portEl);
+  });
+  portsBlock.appendChild(row);
+  body.appendChild(portsBlock);
+}
+
+// ----------------------------------------------------------------------------
+// HIGH CONTRAST SOLID PORT HOVER TOOLTIP (FIXED VIEWPORT HUD)
+// ----------------------------------------------------------------------------
 function setupPortHover(portEl, portData, swData) {
   portEl.addEventListener('mouseenter', () => {
     let tooltip = document.getElementById('chassisPortTooltip');
@@ -977,23 +1384,32 @@ function setupPortHover(portEl, portData, swData) {
     const isUp = portData.status === 'up';
 
     tooltip.innerHTML = `
-      <div style="font-weight:700; color:#38bdf8; font-size:12px; margin-bottom:4px; display:flex; justify-content:space-between; gap:10px;">
-        <span>Cổng #${portData.port}: ${portData.name || ('Port ' + portData.port)}</span>
-        <span style="color:${isUp ? '#22c55e' : '#ef4444'}; font-weight:800;">[${isUp ? 'UP - Online' : 'DOWN'}]</span>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.12);">
+        <strong style="color:#38bdf8; font-size:12px;"><i class="mdi mdi-lan-connect"></i> Cổng #${portData.port}: ${escapeHtml(portData.name || ('Port ' + portData.port))}</strong>
+        <span style="background:${isUp ? '#065f46' : '#7f1d1d'}; color:${isUp ? '#34d399' : '#f87171'}; border:1px solid ${isUp ? '#059669' : '#b91c1c'}; font-size:10px; font-weight:800; padding:2px 7px; border-radius:12px;">${isUp ? '● UP' : '○ DOWN'}</span>
       </div>
-      <div style="font-size:11px; color:#cbd5e1; line-height:1.6;">
-        <div>• <strong>Tốc độ cổng:</strong> ${portData.speed || '1 Gbps Full-Duplex'}</div>
-        <div>• <strong>Lưu lượng vào:</strong> <span style="color:#38bdf8">↓ ${fmtRate(portData.down_bps || 0)}</span></div>
-        <div>• <strong>Lưu lượng ra:</strong> <span style="color:#818cf8">↑ ${fmtRate(portData.up_bps || 0)}</span></div>
-        ${portData.poe_watts > 0 ? `<div>• <strong>Nguồn PoE:</strong> <span style="color:#eab308">⚡ ${portData.poe_watts} Watts (802.3at PoE+)</span></div>` : ''}
-        ${portData.note ? `<div>• <strong>Ghi chú kết nối:</strong> <span style="color:#fcd34d">${portData.note}</span></div>` : ''}
+      <div style="display:flex; flex-direction:column; gap:4px; font-size:11px;">
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">Tốc độ liên kết:</span> <strong style="color:#ffffff;">${escapeHtml(portData.speed || '1 Gbps Full-Duplex')}</strong></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">Lưu lượng tải về (In):</span> <strong style="color:#38bdf8;">↓ ${fmtRate(portData.down_bps || 0)}</strong></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">Lưu lượng tải lên (Out):</span> <strong style="color:#a78bfa;">↑ ${fmtRate(portData.up_bps || 0)}</strong></div>
+        ${portData.poe_watts > 0 ? `<div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">Nguồn cấp PoE:</span> <strong style="color:#f59e0b;">⚡ ${portData.poe_watts} Watts</strong></div>` : ''}
+        ${portData.note ? `<div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">Ghi chú kết nối:</span> <strong style="color:#fde047;">${escapeHtml(portData.note)}</strong></div>` : ''}
       </div>
     `;
+
     tooltip.style.display = 'block';
-    const leftPos = Math.max(10, r.left + r.width / 2 - 110);
-    const topPos = Math.max(10, r.top - tooltip.offsetHeight - 10);
-    tooltip.style.left = `${leftPos}px`;
-    tooltip.style.top = `${topPos}px`;
+    const tooltipW = tooltip.offsetWidth || 260;
+    const tooltipH = tooltip.offsetHeight || 135;
+
+    let top = r.top - tooltipH - 12;
+    if (top < 10) {
+      top = r.bottom + 12; // Flip below if offscreen above
+    }
+    let left = r.left + r.width / 2 - tooltipW / 2;
+    left = Math.max(10, Math.min(window.innerWidth - tooltipW - 10, left));
+
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
   });
 
   portEl.addEventListener('mouseleave', () => {
@@ -1002,10 +1418,10 @@ function setupPortHover(portEl, portData, swData) {
   });
 }
 
-window.toggleChassisPhotoView = function(swId) {
-  const sw = findDevice(swId);
-  if (!sw || !sw.image_url) return;
-  const chassis = document.querySelector(`.ports-column.chassis-faceplate[data-swid="${swId}"]`);
+window.toggleChassisPhotoView = function(devId) {
+  const dev = findDevice(devId);
+  if (!dev || !dev.image_url) return;
+  const chassis = document.querySelector(`.ports-column.chassis-faceplate[data-swid="${devId}"]`);
   if (!chassis) return;
   const body = chassis.querySelector('.chassis-main-body');
   if (!body) return;
@@ -1017,14 +1433,14 @@ window.toggleChassisPhotoView = function(swId) {
     body.dataset.mode = 'photo';
     body.innerHTML = `
       <div class="chassis-photo-view">
-        <img src="${sw.image_url}" alt="${sw.name}" onerror="this.onerror=null; this.src=''; alert('Không thể nạp link ảnh thiết bị');">
+        <img src="${dev.image_url}" alt="${dev.name}" onerror="this.onerror=null; this.src=''; alert('Không thể nạp link ảnh thiết bị');">
       </div>
     `;
   }
 };
 
-window.closePortCol = function(swId) {
-  state.selectedSwitches.delete(swId);
+window.closePortCol = function(devId) {
+  state.expandedDevices.delete(devId);
   renderExpandedPorts();
   scheduleDrawLinks();
 };
@@ -1475,68 +1891,9 @@ function initDeviceModalEvents() {
           if (waitBox) waitBox.style.display = 'none';
           if (contentBox) contentBox.style.display = 'block';
 
-          // Tự động kích hoạt các cảm biến tìm thấy và cập nhật nhãn trạng thái
+          // Tự động kết xuất CHỈ các cảm biến mà thiết bị thực tế hỗ trợ qua SNMP (Yêu cầu ảnh 1)
           if (d.sensors_discovered) {
-            const sd = d.sensors_discovered;
-            if (sd.ping) {
-              const chk = document.getElementById('chkSensorPing');
-              if (chk) chk.checked = !!sd.ping.available;
-              const hint = document.getElementById('hintSensorPing');
-              if (hint) hint.innerHTML = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> ICMP (${sd.ping.value})</span>`;
-            }
-            if (sd.uptime) {
-              const chk = document.getElementById('chkSensorUptime');
-              if (chk) chk.checked = !!sd.uptime.available;
-              const hint = document.getElementById('hintSensorUptime');
-              if (hint) hint.innerHTML = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> UpTime: ${sd.uptime.value}</span>`;
-            }
-            if (sd.cpu) {
-              const chk = document.getElementById('chkSensorCpu');
-              if (chk) chk.checked = !!sd.cpu.available;
-              const hint = document.getElementById('hintSensorCpu');
-              if (hint) {
-                hint.innerHTML = sd.cpu.available
-                  ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> OID CPU hợp lệ (${sd.cpu.value}%)</span>`
-                  : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Thiết bị không hỗ trợ OID CPU</span>`;
-              }
-            }
-            if (sd.ram) {
-              const chk = document.getElementById('chkSensorRam');
-              if (chk) chk.checked = !!sd.ram.available;
-              const hint = document.getElementById('hintSensorRam');
-              if (hint) {
-                hint.innerHTML = sd.ram.available
-                  ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> OID RAM hợp lệ (${sd.ram.value}%)</span>`
-                  : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Thiết bị không hỗ trợ OID RAM</span>`;
-              }
-            }
-            if (sd.temp || sd.health) {
-              const chk = document.getElementById('chkSensorTemp');
-              if (chk) chk.checked = (sd.temp && sd.temp.available) || (sd.health && sd.health.available);
-              const hint = document.getElementById('hintSensorTemp');
-              if (hint) {
-                const tempVal = (sd.temp && sd.temp.value != null) ? `${sd.temp.value}°C` : 'Bình thường';
-                hint.innerHTML = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Sức khỏe & Nhiệt độ (${tempVal})</span>`;
-              }
-            }
-            if (sd.vpn) {
-              const chk = document.getElementById('chkSensorVpn');
-              if (chk) chk.checked = !!sd.vpn.available;
-              const hint = document.getElementById('hintSensorVpn');
-              if (hint) hint.innerHTML = sd.vpn.available ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Hỗ trợ giám sát VPN</span>` : `<span style="color:var(--text-dim);">Không có VPN</span>`;
-            }
-            if (sd.sessions) {
-              const chk = document.getElementById('chkSensorSessions');
-              if (chk) chk.checked = !!sd.sessions.available;
-            }
-            if (sd.storage) {
-              const chk = document.getElementById('chkSensorStorage');
-              if (chk) chk.checked = !!sd.storage.available;
-            }
-            if (sd.poe) {
-              const chk = document.getElementById('chkSensorPoe');
-              if (chk) chk.checked = !!sd.poe.available;
-            }
+            renderSensorsSelectGrid(d.sensors_discovered, null, type);
           }
 
           // Nạp các cổng mạng thực tế phát hiện được
@@ -1559,25 +1916,19 @@ function initDeviceModalEvents() {
 
   // Bulk Sensor Selection actions
   bindClick('btnSelectAllSensors', () => {
-    ['chkSensorPing', 'chkSensorUptime', 'chkSensorCpu', 'chkSensorRam', 'chkSensorTemp', 'chkSensorVpn', 'chkSensorSessions', 'chkSensorStorage', 'chkSensorPoe'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.checked = true;
+    document.querySelectorAll('#sensorsGridContainer input[type="checkbox"]').forEach(c => {
+      c.checked = true;
     });
   });
   bindClick('btnSelectBasicSensorsOnly', () => {
-    ['chkSensorPing', 'chkSensorUptime'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.checked = true;
-    });
-    ['chkSensorCpu', 'chkSensorRam', 'chkSensorTemp', 'chkSensorVpn', 'chkSensorSessions', 'chkSensorStorage', 'chkSensorPoe'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.checked = false;
+    document.querySelectorAll('#sensorsGridContainer input[type="checkbox"]').forEach(c => {
+      const s = c.dataset.sensor;
+      c.checked = (s === 'ping' || s === 'uptime');
     });
   });
   bindClick('btnDeselectAllSensors', () => {
-    ['chkSensorPing', 'chkSensorUptime', 'chkSensorCpu', 'chkSensorRam', 'chkSensorTemp', 'chkSensorVpn', 'chkSensorSessions', 'chkSensorStorage', 'chkSensorPoe'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.checked = false;
+    document.querySelectorAll('#sensorsGridContainer input[type="checkbox"]').forEach(c => {
+      c.checked = false;
     });
   });
 
@@ -1704,6 +2055,145 @@ function initDeviceModalEvents() {
   }
 }
 
+// ============================================================================
+// DYNAMIC SNMP SENSOR SELECTION ENGINE (YÊU CẦU ẢNH 1)
+// ============================================================================
+const SENSOR_CATALOG = {
+  ping: {
+    label: 'Kiểm Tra Ping (ICMP RTT)',
+    icon: 'mdi-access-point-network',
+    color: '#38bdf8',
+    defaultHint: 'Đo độ trễ ms & tỷ lệ mất gói tin (Packet Loss)'
+  },
+  uptime: {
+    label: 'Thời Gian Hoạt Động (UpTime)',
+    icon: 'mdi-clock-outline',
+    color: '#34d399',
+    defaultHint: 'sysUpTime.0 (RFC 1213)'
+  },
+  cpu: {
+    label: 'Tải Xử Lý CPU (%)',
+    icon: 'mdi-cpu-64-bit',
+    color: '#f59e0b',
+    defaultHint: 'Cisco / SonicWall / Fortinet / HostResources'
+  },
+  ram: {
+    label: 'Bộ Nhớ RAM (%)',
+    icon: 'mdi-memory',
+    color: '#a855f7',
+    defaultHint: 'Physical & Virtual Memory MIB'
+  },
+  temp: {
+    label: 'Sức Khỏe & Nhiệt Độ (°C)',
+    icon: 'mdi-heart-pulse',
+    color: '#ef4444',
+    defaultHint: 'EnvMon / System Temp & Fan Status'
+  },
+  vpn: {
+    label: 'Kênh Mạng Riêng Ảo VPN',
+    icon: 'mdi-shield-link-variant',
+    color: '#06b6d4',
+    defaultHint: 'IPSec Tunnel & SSL-VPN (Firewall/Router)'
+  },
+  sessions: {
+    label: 'Số Lượng Phiên (Sessions)',
+    icon: 'mdi-swap-horizontal-bold',
+    color: '#6366f1',
+    defaultHint: 'Dành riêng cho Tường Lửa Firewall'
+  },
+  storage: {
+    label: 'Dung Lượng Ổ Cứng (Storage)',
+    icon: 'mdi-harddisk',
+    color: '#ec4899',
+    defaultHint: 'Dành cho NAS, NVR, Máy Chủ'
+  },
+  poe: {
+    label: 'Cấp Nguồn PoE (Power Budget)',
+    icon: 'mdi-flash',
+    color: '#eab308',
+    defaultHint: 'Cấp nguồn qua cáp LAN cho AP & Camera'
+  }
+};
+
+function renderSensorsSelectGrid(discovered = null, monitoredSensors = null, deviceType = 'switch') {
+  const container = document.getElementById('sensorsGridContainer');
+  if (!container) return;
+  container.innerHTML = '';
+
+  let keysToRender = [];
+
+  if (discovered && typeof discovered === 'object') {
+    // Yêu cầu ảnh 1: CHỈ hiển thị các cảm biến mà thiết bị thực tế phản hồi qua SNMP
+    Object.keys(discovered).forEach(k => {
+      const item = discovered[k];
+      if (item && item.available) {
+        const mappedKey = (k === 'health' && !discovered.temp) ? 'temp' : k;
+        if (SENSOR_CATALOG[mappedKey] && !keysToRender.includes(mappedKey)) {
+          keysToRender.push(mappedKey);
+        }
+      }
+    });
+  } else if (monitoredSensors && typeof monitoredSensors === 'object' && Object.keys(monitoredSensors).length > 0) {
+    // Nạp từ cấu hình đã lưu
+    Object.keys(monitoredSensors).forEach(k => {
+      const mappedKey = (k === 'health' && !monitoredSensors.temp) ? 'temp' : k;
+      if (SENSOR_CATALOG[mappedKey] && !keysToRender.includes(mappedKey)) {
+        keysToRender.push(mappedKey);
+      }
+    });
+  } else {
+    // Mặc định ban đầu theo nhóm loại thiết bị phù hợp
+    keysToRender = ['ping', 'uptime', 'cpu', 'ram', 'temp'];
+    if (deviceType === 'firewall') {
+      keysToRender.push('vpn', 'sessions');
+    } else if (deviceType === 'nas' || deviceType === 'nvr' || deviceType === 'server') {
+      keysToRender.push('storage');
+    } else if (deviceType === 'switch' || deviceType === 'core_switch') {
+      keysToRender.push('poe');
+    } else if (deviceType === 'router') {
+      keysToRender.push('vpn');
+    }
+  }
+
+  if (keysToRender.length === 0) {
+    keysToRender = ['ping', 'uptime'];
+  }
+
+  keysToRender.forEach(k => {
+    const meta = SENSOR_CATALOG[k];
+    if (!meta) return;
+
+    const capKey = k.charAt(0).toUpperCase() + k.slice(1);
+    const chkId = `chkSensor${capKey}`;
+    const hintId = `hintSensor${capKey}`;
+    const itemId = `itemSensor${capKey}`;
+
+    let isChecked = true;
+    if (monitoredSensors && monitoredSensors[k] !== undefined) {
+      isChecked = !!monitoredSensors[k];
+    } else if (monitoredSensors && k === 'temp' && monitoredSensors.health !== undefined) {
+      isChecked = !!monitoredSensors.health;
+    }
+
+    let hintHtml = meta.defaultHint;
+    if (discovered && discovered[k] && discovered[k].value != null) {
+      hintHtml = `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Đã phát hiện (${escapeHtml(discovered[k].value)})</span>`;
+    }
+
+    const label = document.createElement('label');
+    label.className = 'sensor-checkbox-item';
+    label.id = itemId;
+    label.innerHTML = `
+      <input type="checkbox" id="${chkId}" class="sensor-toggle-chk" data-sensor="${k}" ${isChecked ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px; accent-color:var(--accent-cyan);">
+      <div class="sensor-info">
+        <span class="sensor-name"><i class="mdi ${meta.icon}" style="color:${meta.color};"></i> ${meta.label}</span>
+        <span class="sensor-hint" id="${hintId}">${hintHtml}</span>
+      </div>
+    `;
+    container.appendChild(label);
+  });
+}
+
 function handleDeviceTypeChange(type) {
   const nvrSec = document.getElementById('sectionNvrConfig');
   const nasSec = document.getElementById('sectionNasConfig');
@@ -1712,11 +2202,16 @@ function handleDeviceTypeChange(type) {
   if (nasSec) nasSec.style.display = type === 'nas' ? 'block' : 'none';
   if (swSec) swSec.style.display = (type === 'switch' || type === 'core_switch') ? 'block' : 'none';
 
-  // Hiện/ẩn các chỉ số đặc thù cho từng loại thiết bị
-  const itemSessions = document.getElementById('itemSensorSessions');
-  const itemStorage = document.getElementById('itemSensorStorage');
-  if (itemSessions) itemSessions.style.display = (type === 'firewall') ? 'flex' : 'none';
-  if (itemStorage) itemStorage.style.display = (type === 'nas' || type === 'nvr' || type === 'server') ? 'flex' : 'none';
+  // Điều chỉnh danh sách cảm biến hiển thị tương ứng nếu chưa chạy kiểm tra SNMP
+  const testRes = document.getElementById('snmpTestResult');
+  const hasLiveTest = testRes && testRes.classList.contains('success');
+  if (!hasLiveTest) {
+    const currentChecked = {};
+    document.querySelectorAll('#sensorsGridContainer input[data-sensor]').forEach(chk => {
+      currentChecked[chk.dataset.sensor] = chk.checked;
+    });
+    renderSensorsSelectGrid(null, Object.keys(currentChecked).length ? currentChecked : null, type);
+  }
 }
 
 function populateZoneDropdown(currentZoneId = 'mdf') {
@@ -1951,6 +2446,7 @@ function openCreateDeviceModal() {
   if (waitBox) waitBox.style.display = 'flex';
   if (contentBox) contentBox.style.display = 'none';
 
+  renderSensorsSelectGrid(null, null, 'switch');
   renderPortsSelectTable([]);
 
   const fTbody = document.getElementById('nasFoldersTbody');
@@ -2011,30 +2507,14 @@ function openEditDeviceModal(nodeId) {
   const editWaitBox = document.getElementById('snmpSensorsWaitingBox');
   const editContentBox = document.getElementById('snmpSensorsContentBox');
   const hasConfiguredPorts = Array.isArray(dev.ports) && dev.ports.length > 0;
-  const hasConfiguredSensors = Boolean(dev.monitored_sensors);
+  const hasConfiguredSensors = Boolean(dev.monitored_sensors && Object.keys(dev.monitored_sensors).length > 0);
 
   if (hasConfiguredPorts || hasConfiguredSensors) {
     if (editWaitBox) editWaitBox.style.display = 'none';
     if (editContentBox) editContentBox.style.display = 'block';
 
-    // Nạp trạng thái tùy chọn giám sát cảm biến đã lưu
-    const ms = dev.monitored_sensors || {};
-    if (document.getElementById('chkSensorPing')) document.getElementById('chkSensorPing').checked = ms.ping !== undefined ? !!ms.ping : true;
-    if (document.getElementById('chkSensorUptime')) document.getElementById('chkSensorUptime').checked = ms.uptime !== undefined ? !!ms.uptime : true;
-    if (document.getElementById('chkSensorCpu')) document.getElementById('chkSensorCpu').checked = ms.cpu !== undefined ? !!ms.cpu : true;
-    if (document.getElementById('chkSensorRam')) document.getElementById('chkSensorRam').checked = ms.ram !== undefined ? !!ms.ram : true;
-    if (document.getElementById('chkSensorTemp')) document.getElementById('chkSensorTemp').checked = (ms.temp !== undefined ? !!ms.temp : (ms.health !== undefined ? !!ms.health : true));
-    if (document.getElementById('chkSensorVpn')) document.getElementById('chkSensorVpn').checked = ms.vpn !== undefined ? !!ms.vpn : (currentType === 'firewall');
-    if (document.getElementById('chkSensorSessions')) document.getElementById('chkSensorSessions').checked = ms.sessions !== undefined ? !!ms.sessions : (currentType === 'firewall');
-    if (document.getElementById('chkSensorStorage')) document.getElementById('chkSensorStorage').checked = ms.storage !== undefined ? !!ms.storage : (currentType === 'nas' || currentType === 'nvr');
-    if (document.getElementById('chkSensorPoe')) document.getElementById('chkSensorPoe').checked = ms.poe !== undefined ? !!ms.poe : (currentType === 'switch');
-
-    const hintCpu = document.getElementById('hintSensorCpu');
-    if (hintCpu) hintCpu.innerHTML = dev.cpu_percent !== undefined ? `Giá trị gần nhất: ${dev.cpu_percent}%` : 'Cisco / SonicWall / Fortinet / HostResources';
-    const hintRam = document.getElementById('hintSensorRam');
-    if (hintRam) hintRam.innerHTML = dev.ram_percent !== undefined ? `Giá trị gần nhất: ${dev.ram_percent}%` : 'Physical & Virtual Memory MIB';
-    const hintTemp = document.getElementById('hintSensorTemp');
-    if (hintTemp) hintTemp.innerHTML = dev.temp_c !== undefined ? `Giá trị gần nhất: ${dev.temp_c}°C` : 'Cisco EnvMon / Synology Temp MIB';
+    // Nạp trạng thái tùy chọn giám sát cảm biến động
+    renderSensorsSelectGrid(null, dev.monitored_sensors || null, currentType);
 
     // Nạp danh sách các cổng mạng đã lưu
     renderPortsSelectTable(dev.ports || []);
@@ -2042,6 +2522,7 @@ function openEditDeviceModal(nodeId) {
     // Thiết bị chưa có dữ liệu SNMP: hiển thị banner hướng dẫn bấm nút "Kiểm Tra Kết Nối SNMP"
     if (editWaitBox) editWaitBox.style.display = 'flex';
     if (editContentBox) editContentBox.style.display = 'none';
+    renderSensorsSelectGrid(null, null, currentType);
     renderPortsSelectTable([]);
   }
 
@@ -2156,18 +2637,20 @@ async function saveDeviceForm() {
   let ports = existingDev ? existingDev.ports : null;
 
   if (isContentVisible) {
-    monitored_sensors = {
-      ping: document.getElementById('chkSensorPing') ? document.getElementById('chkSensorPing').checked : true,
-      uptime: document.getElementById('chkSensorUptime') ? document.getElementById('chkSensorUptime').checked : true,
-      cpu: document.getElementById('chkSensorCpu') ? document.getElementById('chkSensorCpu').checked : true,
-      ram: document.getElementById('chkSensorRam') ? document.getElementById('chkSensorRam').checked : true,
-      temp: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
-      health: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
-      vpn: document.getElementById('chkSensorVpn') ? document.getElementById('chkSensorVpn').checked : false,
-      sessions: document.getElementById('chkSensorSessions') ? document.getElementById('chkSensorSessions').checked : false,
-      storage: document.getElementById('chkSensorStorage') ? document.getElementById('chkSensorStorage').checked : false,
-      poe: document.getElementById('chkSensorPoe') ? document.getElementById('chkSensorPoe').checked : false
-    };
+    monitored_sensors = {};
+    const sensorCheckboxes = document.querySelectorAll('#sensorsGridContainer input[data-sensor]');
+    if (sensorCheckboxes.length > 0) {
+      sensorCheckboxes.forEach(chk => {
+        monitored_sensors[chk.dataset.sensor] = chk.checked;
+      });
+      if (monitored_sensors.temp !== undefined) {
+        monitored_sensors.health = monitored_sensors.temp;
+      }
+    } else if (existingDev && existingDev.monitored_sensors) {
+      monitored_sensors = { ...existingDev.monitored_sensors };
+    } else {
+      monitored_sensors = { ping: true, uptime: true, cpu: true, ram: true, temp: true, health: true };
+    }
 
     const portRows = document.querySelectorAll('#portsSelectTbody tr');
     if (portRows.length > 0) {

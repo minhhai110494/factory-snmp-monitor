@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Factory SNMP Network Monitor - Giám Sát Mạng Nhà Máy</title>
-  <link rel="stylesheet" href="css/style.css?v=2.0.4">
+  <link rel="stylesheet" href="css/style.css?v=2.0.5">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
 </head>
 <body class="theme-neon">
@@ -31,35 +31,35 @@
           <div class="stat-icon"><i class="mdi mdi-server-network"></i></div>
           <div class="stat-content">
             <span class="stat-label">Thiết Bị Online</span>
-            <span class="stat-value" id="statDevicesOnline">14 / 14</span>
+            <span class="stat-value" id="statDevicesOnline">0 / 0</span>
           </div>
         </div>
         <div class="stat-pill">
           <div class="stat-icon"><i class="mdi mdi-lan-connect"></i></div>
           <div class="stat-content">
             <span class="stat-label">Cổng Đang Up</span>
-            <span class="stat-value" id="statPortsUp">78 / 128</span>
+            <span class="stat-value" id="statPortsUp">0 / 0</span>
           </div>
         </div>
         <div class="stat-pill">
           <div class="stat-icon download"><i class="mdi mdi-arrow-down-bold"></i></div>
           <div class="stat-content">
             <span class="stat-label">Tổng Tải Xuống</span>
-            <span class="stat-value" id="statTotalDown">155.3 Mbps</span>
+            <span class="stat-value" id="statTotalDown">0 bps</span>
           </div>
         </div>
         <div class="stat-pill">
           <div class="stat-icon upload"><i class="mdi mdi-arrow-up-bold"></i></div>
           <div class="stat-content">
             <span class="stat-label">Tổng Tải Lên</span>
-            <span class="stat-value" id="statTotalUp">82.7 Mbps</span>
+            <span class="stat-value" id="statTotalUp">0 bps</span>
           </div>
         </div>
-        <div class="stat-pill alert-pill" id="statAlertPill">
+        <div class="stat-pill" id="statAlertPill">
           <div class="stat-icon alert"><i class="mdi mdi-alert-circle"></i></div>
           <div class="stat-content">
             <span class="stat-label">Cảnh Báo</span>
-            <span class="stat-value" id="statAlertCount">1</span>
+            <span class="stat-value" id="statAlertCount">0</span>
           </div>
         </div>
       </div>
@@ -215,12 +215,13 @@
                 </select>
               </div>
               <div class="form-group flex-1">
-                <label>Trạng Thái:</label>
-                <select id="editDevStatus">
-                  <option value="ok">Bình Thường (Online)</option>
-                  <option value="warn">Cảnh Báo (Warning)</option>
-                  <option value="bad">Mất Kết Nối (Offline/Error)</option>
-                </select>
+                <label>Trạng Thái Kết Nối (Tự Động SNMP):</label>
+                <div id="editDevStatusDisplay" class="device-live-status-pill status-bad">
+                  <span class="status-indicator-dot bad"></span>
+                  <span class="status-text">Mất Kết Nối (Offline / Timeout)</span>
+                </div>
+                <input type="hidden" id="editDevStatus" value="bad">
+                <small style="color:var(--text-dim); font-size:11px;">Tự động thăm dò SNMP/Ping theo thời gian thực</small>
               </div>
             </div>
 
@@ -667,6 +668,6 @@
 
   </div>
 
-  <script src="js/app.js?v=2.0.4"></script>
+  <script src="js/app.js?v=2.0.5"></script>
 </body>
 </html>

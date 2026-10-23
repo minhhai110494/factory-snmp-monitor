@@ -245,6 +245,7 @@ function updateLiveMetrics(data) {
   if (data.infrastructure_nodes !== undefined) state.topology.infrastructure_nodes = data.infrastructure_nodes || [];
 
   updateNodeTexts();
+  updateHeaderStats();
   scheduleDrawLinks();
 }
 
@@ -252,40 +253,46 @@ function updateNodeTexts() {
   const t = state.topology;
   if (!t) return;
 
-  (t.isp || []).forEach((isp) => {
-    const el = document.querySelector(`[data-nid="${isp.id}"]`);
-    if (el) {
-      const downEl = el.querySelector('.rate-badge.down span');
-      const upEl = el.querySelector('.rate-badge.up span');
-      if (downEl) downEl.textContent = `↓ ${fmtRate(isp.down_bps)}`;
-      if (upEl) upEl.textContent = `↑ ${fmtRate(isp.up_bps)}`;
-    }
-  });
+  function updateVisual(id, status, downBps, upBps) {
+    const el = document.querySelector(`[data-nid="${id}"]`);
+    if (!el) return;
 
-  const fwEl = document.querySelector(`[data-nid="fw"]`);
-  if (fwEl && t.firewall) {
-    const downEl = fwEl.querySelector('.rate-badge.down span');
-    const upEl = fwEl.querySelector('.rate-badge.up span');
-    if (downEl) downEl.textContent = `↓ ${fmtRate(t.firewall.down_bps)}`;
-    if (upEl) upEl.textContent = `↑ ${fmtRate(t.firewall.up_bps)}`;
+    if (downBps != null) {
+      const downEl = el.querySelector('.rate-badge.down span');
+      if (downEl) downEl.textContent = `↓ ${fmtRate(downBps)}`;
+    }
+    if (upBps != null) {
+      const upEl = el.querySelector('.rate-badge.up span');
+      if (upEl) upEl.textContent = `↑ ${fmtRate(upBps)}`;
+    }
+
+    if (status) {
+      el.classList.remove('ok', 'warn', 'bad', 'lv1', 'lv2', 'online', 'offline', 'down');
+      el.classList.add(status);
+      if (status === 'warn') el.classList.add('lv1');
+      if (status === 'bad' || status === 'offline' || status === 'down') el.classList.add('lv2');
+
+      const dot = el.querySelector('.status-dot');
+      if (dot) {
+        dot.className = `status-dot ${status}`;
+      }
+    }
   }
 
-  const coreEl = document.querySelector(`[data-nid="core"]`);
-  if (coreEl && t.core_switch) {
-    const downEl = coreEl.querySelector('.rate-badge.down span');
-    const upEl = coreEl.querySelector('.rate-badge.up span');
-    if (downEl) downEl.textContent = `↓ ${fmtRate(t.core_switch.down_bps)}`;
-    if (upEl) upEl.textContent = `↑ ${fmtRate(t.core_switch.up_bps)}`;
+  (t.isp || []).forEach((isp) => {
+    updateVisual(isp.id, isp.status, isp.down_bps, isp.up_bps);
+  });
+
+  if (t.firewall) {
+    updateVisual(t.firewall.id || 'fw', t.firewall.status, t.firewall.down_bps, t.firewall.up_bps);
+  }
+
+  if (t.core_switch) {
+    updateVisual(t.core_switch.id || 'core', t.core_switch.status, t.core_switch.down_bps, t.core_switch.up_bps);
   }
 
   (t.switches || []).forEach((sw) => {
-    const el = document.querySelector(`[data-nid="${sw.id}"]`);
-    if (el) {
-      const downEl = el.querySelector('.rate-badge.down span');
-      const upEl = el.querySelector('.rate-badge.up span');
-      if (downEl) downEl.textContent = `↓ ${fmtRate(sw.down_bps)}`;
-      if (upEl) upEl.textContent = `↑ ${fmtRate(sw.up_bps)}`;
-    }
+    updateVisual(sw.id, sw.status, sw.down_bps, sw.up_bps);
     if (state.selectedSwitches.has(sw.id) && sw.ports) {
       sw.ports.forEach((p) => {
         const pEl = document.querySelector(`[data-portid="${sw.id}_${p.port}"]`);
@@ -300,14 +307,81 @@ function updateNodeTexts() {
   });
 
   (t.infrastructure_nodes || []).forEach((n) => {
-    const el = document.querySelector(`[data-nid="${n.id}"]`);
-    if (el) {
-      const downEl = el.querySelector('.rate-badge.down span');
-      const upEl = el.querySelector('.rate-badge.up span');
-      if (downEl) downEl.textContent = `↓ ${fmtRate(n.down_bps)}`;
-      if (upEl) upEl.textContent = `↑ ${fmtRate(n.up_bps)}`;
+    updateVisual(n.id, n.status, n.down_bps, n.up_bps);
+  });
+
+  updateHeaderStats();
+}
+
+// CẬP NHẬT THỐNG KÊ HEADER THỰC TẾ THEO THỜI GIAN THỰC
+function updateHeaderStats() {
+  const t = state.topology;
+  if (!t) return;
+
+  const allDevs = [];
+  if (t.firewall) allDevs.push(t.firewall);
+  if (t.core_switch) allDevs.push(t.core_switch);
+  (t.switches || []).forEach(s => allDevs.push(s));
+  (t.infrastructure_nodes || []).forEach(n => allDevs.push(n));
+  (t.isp || []).forEach(i => allDevs.push(i));
+
+  const totalDevices = allDevs.length;
+  const onlineDevices = allDevs.filter(d => d.status === 'ok' || d.status === 'online').length;
+  const alertCount = allDevs.filter(d => d.status === 'warn' || d.status === 'bad' || d.status === 'offline' || d.status === 'down').length;
+
+  // Tổng số cổng đang UP / Tổng cổng Switch mạng
+  let totalPorts = 0;
+  let upPorts = 0;
+  const switches = [];
+  if (t.core_switch) switches.push(t.core_switch);
+  (t.switches || []).forEach(s => switches.push(s));
+
+  switches.forEach(sw => {
+    if (sw.ports && sw.ports.length) {
+      totalPorts += sw.ports.length;
+      upPorts += sw.ports.filter(p => p.status === 'up').length;
+    } else {
+      const cnt = Number(sw.ports_count) || 24;
+      totalPorts += cnt;
+      if (sw.status === 'ok') upPorts += Math.round(cnt * 0.6);
     }
   });
+
+  // Tổng tải băng thông
+  let totalDownBps = 0;
+  let totalUpBps = 0;
+
+  if (t.firewall && (t.firewall.down_bps || t.firewall.up_bps)) {
+    totalDownBps = t.firewall.down_bps || 0;
+    totalUpBps = t.firewall.up_bps || 0;
+  } else if (t.isp && t.isp.length && (t.isp[0].down_bps || t.isp[0].up_bps)) {
+    totalDownBps = t.isp[0].down_bps || 0;
+    totalUpBps = t.isp[0].up_bps || 0;
+  } else {
+    allDevs.forEach(d => {
+      totalDownBps += (d.down_bps || 0);
+      totalUpBps += (d.up_bps || 0);
+    });
+  }
+
+  const elDevs = document.getElementById('statDevicesOnline');
+  const elPorts = document.getElementById('statPortsUp');
+  const elDown = document.getElementById('statTotalDown');
+  const elUp = document.getElementById('statTotalUp');
+  const elAlert = document.getElementById('statAlertCount');
+
+  if (elDevs) elDevs.textContent = `${onlineDevices} / ${totalDevices}`;
+  if (elPorts) elPorts.textContent = `${upPorts} / ${totalPorts}`;
+  if (elDown) elDown.textContent = fmtRate(totalDownBps);
+  if (elUp) elUp.textContent = fmtRate(totalUpBps);
+  if (elAlert) {
+    elAlert.textContent = `${alertCount}`;
+    const alertPill = elAlert.closest('.stat-pill');
+    if (alertPill) {
+      if (alertCount > 0) alertPill.classList.add('alert-pill');
+      else alertPill.classList.remove('alert-pill');
+    }
+  }
 }
 
 // ============================================================================
@@ -320,6 +394,7 @@ function setupHeader() {
   const locEl = document.getElementById('factoryLocation');
   if (nameEl) nameEl.textContent = f.name;
   if (locEl) locEl.textContent = f.location;
+  updateHeaderStats();
 }
 
 function renderZones() {
@@ -476,7 +551,9 @@ function renderTopologyNodes() {
 
 function createDraggableNode(opt) {
   const el = document.createElement('div');
-  el.className = `topo-node ${opt.status} ${opt.status === 'warn' ? 'lv1' : opt.status === 'bad' ? 'lv2' : ''}`;
+  const isBad = opt.status === 'bad' || opt.status === 'offline' || opt.status === 'down';
+  const isWarn = opt.status === 'warn' || opt.status === 'warning';
+  el.className = `topo-node ${opt.status} ${isWarn ? 'lv1' : isBad ? 'lv2' : ''}`;
   el.dataset.nid = opt.id;
   el.dataset.zone = opt.zone || 'all';
 
@@ -1155,6 +1232,7 @@ function initDeviceModalEvents() {
 
       if (resBox) {
         if (d.success) {
+          setEditDeviceStatusDisplay('ok');
           resBox.className = 'snmp-test-result success';
           resBox.innerHTML = `
             <strong><i class="mdi mdi-check-circle"></i> KẾT NỐI THÀNH CÔNG! (${d.latency_ms} ms)</strong><br>
@@ -1165,6 +1243,7 @@ function initDeviceModalEvents() {
             ${d.note ? `<br><small style="color:#fcd34d;">• ${d.note}</small>` : ''}
           `;
         } else {
+          setEditDeviceStatusDisplay('bad');
           resBox.className = 'snmp-test-result error';
           resBox.innerHTML = `<strong><i class="mdi mdi-close-circle"></i> KẾT NỐI THẤT BẠI</strong><br><span>Lý do: ${d.error || 'Timeout không có phản hồi'}</span>`;
         }
@@ -1298,6 +1377,25 @@ function populateParentDropdown(excludeNodeId = null, currentParentId = null) {
   });
 }
 
+function setEditDeviceStatusDisplay(status) {
+  const displayEl = document.getElementById('editDevStatusDisplay');
+  const inputEl = document.getElementById('editDevStatus');
+  if (inputEl) inputEl.value = status;
+  if (!displayEl) return;
+
+  displayEl.className = 'device-live-status-pill';
+  if (status === 'ok' || status === 'online') {
+    displayEl.classList.add('status-ok');
+    displayEl.innerHTML = `<span class="status-indicator-dot ok"></span> <span class="status-text"><i class="mdi mdi-check-circle"></i> Đang Hoạt Động (Online)</span>`;
+  } else if (status === 'warn') {
+    displayEl.classList.add('status-warn');
+    displayEl.innerHTML = `<span class="status-indicator-dot warn"></span> <span class="status-text"><i class="mdi mdi-alert-circle"></i> Cảnh Báo (Độ Trễ Cao / Chập Chờn)</span>`;
+  } else {
+    displayEl.classList.add('status-bad');
+    displayEl.innerHTML = `<span class="status-indicator-dot bad"></span> <span class="status-text"><i class="mdi mdi-close-circle"></i> Mất Kết Nối (Offline / Timeout)</span>`;
+  }
+}
+
 function openCreateDeviceModal() {
   const modal = document.getElementById('deviceEditModal');
   const titleEl = document.getElementById('deviceModalTitle');
@@ -1315,7 +1413,7 @@ function openCreateDeviceModal() {
   document.getElementById('editDevIp').value = '192.168.10.';
   document.getElementById('editDevVendor').value = '';
   document.getElementById('editDevModel').value = '';
-  document.getElementById('editDevStatus').value = 'ok';
+  setEditDeviceStatusDisplay('bad');
   document.getElementById('editDevSnmpCommunity').value = 'public';
   document.getElementById('editDevParentPort').value = 'Te1/0/5';
   document.getElementById('editDevChildPort').value = 'Gi1/0/24';
@@ -1361,7 +1459,7 @@ function openEditDeviceModal(nodeId) {
   document.getElementById('editDevIp').value = dev.ip || '';
   document.getElementById('editDevVendor').value = dev.vendor || '';
   document.getElementById('editDevModel').value = dev.model || '';
-  document.getElementById('editDevStatus').value = dev.status || 'ok';
+  setEditDeviceStatusDisplay(dev.status || 'bad');
   document.getElementById('editDevParentPort').value = dev.parent_port || '';
   document.getElementById('editDevChildPort').value = dev.child_port || '';
 

@@ -1,0 +1,141 @@
+{
+  "factory": {
+    "name": "NETWORK MONITOR",
+    "location": "KCN VSIP - B nh Duong",
+    "updated_at": "2026-10-22T23:45:00Z"
+  },
+  "settings": {
+    "poll_interval_sec": 3,
+    "active_threshold_bps": 2000,
+    "mode": "live",
+    "theme": "neon",
+    "flow_style": "galaxy",
+    "alerts": {
+      "enabled": true,
+      "factor_warn": 2,
+      "factor_crit": 4,
+      "floors": {
+        "infra": {
+          "warn": 50,
+          "crit": 200
+        },
+        "switch": {
+          "warn": 20,
+          "crit": 100
+        },
+        "port": {
+          "warn": 10,
+          "crit": 50
+        }
+      }
+    },
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:TEST_TOKEN",
+      "chat_id": "-1001234567",
+      "alert_on_offline": true,
+      "alert_on_high_traffic": true,
+      "alert_on_storage": true
+    }
+  },
+  "layout": {
+    "isp1": {
+      "x": 9,
+      "y": 164
+    },
+    "fw": {
+      "x": 769,
+      "y": 159
+    }
+  },
+  "zones": [
+    {
+      "id": "all",
+      "name": "Tất Cả Khu Vực",
+      "icon": "mdi:factory"
+    },
+    {
+      "id": "mdf",
+      "name": "Phòng Server (MDF)",
+      "icon": "mdi:server-network"
+    },
+    {
+      "id": "xuong_a",
+      "name": "Xưởng Cơ Khí A",
+      "icon": "mdi:cogs"
+    },
+    {
+      "id": "xuong_b",
+      "name": "Xưởng Lắp Ráp B",
+      "icon": "mdi:robot-industrial"
+    },
+    {
+      "id": "kho",
+      "name": "Kho Hàng & Logistics",
+      "icon": "mdi:warehouse"
+    },
+    {
+      "id": "vanphong",
+      "name": "Văn Phòng Điều Hành",
+      "icon": "mdi:office-building"
+    },
+    {
+      "id": "xuong_c",
+      "name": "Xu?ng D c Khu n C",
+      "icon": "mdi:anvil"
+    }
+  ],
+  "isp": [
+    {
+      "id": "isp1",
+      "name": "NETNAM Leaseline",
+      "type": "isp",
+      "ip": "119.15.175.196",
+      "zone": "mdf",
+      "status": "online",
+      "vendor": "",
+      "model": "",
+      "parent": "fw",
+      "parent_port": "",
+      "child_port": "",
+      "snmp": {
+        "community": "public",
+        "version": "2c",
+        "port": 161
+      },
+      "down_bps": 0,
+      "up_bps": 0,
+      "latency_ms": 9,
+      "loss_pct": 0
+    }
+  ],
+  "firewall": {
+    "id": "fw",
+    "name": "D1-FW-SONICWALL",
+    "vendor": "Sonicwall",
+    "model": "",
+    "ip": "192.168.148.1",
+    "zone": "mdf",
+    "status": "bad",
+    "cpu": 15,
+    "ram": 37,
+    "sessions": 17415,
+    "uptime": "142d 08h 24m",
+    "snmp": {
+      "community": "public",
+      "version": "2c",
+      "port": 161
+    },
+    "down_bps": 0,
+    "up_bps": 0,
+    "type": "firewall",
+    "parent": "core",
+    "parent_port": "",
+    "child_port": "",
+    "latency_ms": 0,
+    "warn_msg": "Mất kết nối SNMP: Không phản hồi từ 192.168.148.1:161"
+  },
+  "core_switch": null,
+  "switches": [],
+  "infrastructure_nodes": []
+}

@@ -1,0 +1,21 @@
+{
+  "name": "factory-snmp-monitor",
+  "version": "1.0.0",
+  "description": "Hệ thống Web App Giám sát Mạng Nhà Máy thời gian thực độc lập (Firewall, Switch, Wifi Controller, AP, NAS, NVR, UPS) với sơ đồ Topo động và luồng băng thông",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "snmp",
+    "network-monitor",
+    "factory",
+    "topology",
+    "switch",
+    "firewall",
+    "nms"
+  ],
+  "author": "Antigravity Engineering",
+  "license": "MIT"
+}

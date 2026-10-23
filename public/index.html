@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Factory SNMP Network Monitor - Giám Sát Mạng Nhà Máy</title>
+  <link rel="stylesheet" href="css/style.css?v=2.0.4">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+</head>
+<body class="theme-neon">
+  <div class="app-layout">
+    
+    <!-- TOP INDUSTRIAL HEADER -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="factory-logo">
+          <i class="mdi mdi-factory logo-icon"></i>
+        </div>
+        <div class="factory-info">
+          <h1 class="factory-title" id="factoryName">NHÀ MÁY SẢN XUẤT CÔNG NGHỆ CAO</h1>
+          <div class="factory-meta">
+            <span class="meta-item"><i class="mdi mdi-map-marker-radius"></i> <span id="factoryLocation">KCN VSIP - Bình Dương</span></span>
+            <span class="meta-item status-badge live"><i class="mdi mdi-record-circle-outline"></i> PURE SNMP (100% REAL)</span>
+            <span class="meta-item ping-badge"><i class="mdi mdi-swap-vertical"></i> <span id="headerLatency">4.2 ms</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-stats">
+        <div class="stat-pill">
+          <div class="stat-icon"><i class="mdi mdi-server-network"></i></div>
+          <div class="stat-content">
+            <span class="stat-label">Thiết Bị Online</span>
+            <span class="stat-value" id="statDevicesOnline">14 / 14</span>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-icon"><i class="mdi mdi-lan-connect"></i></div>
+          <div class="stat-content">
+            <span class="stat-label">Cổng Đang Up</span>
+            <span class="stat-value" id="statPortsUp">78 / 128</span>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-icon download"><i class="mdi mdi-arrow-down-bold"></i></div>
+          <div class="stat-content">
+            <span class="stat-label">Tổng Tải Xuống</span>
+            <span class="stat-value" id="statTotalDown">155.3 Mbps</span>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-icon upload"><i class="mdi mdi-arrow-up-bold"></i></div>
+          <div class="stat-content">
+            <span class="stat-label">Tổng Tải Lên</span>
+            <span class="stat-value" id="statTotalUp">82.7 Mbps</span>
+          </div>
+        </div>
+        <div class="stat-pill alert-pill" id="statAlertPill">
+          <div class="stat-icon alert"><i class="mdi mdi-alert-circle"></i></div>
+          <div class="stat-content">
+            <span class="stat-label">Cảnh Báo</span>
+            <span class="stat-value" id="statAlertCount">1</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-tools">
+        <button class="tool-btn action-highlight" id="btnAddDevice" title="Thêm thiết bị mới vào hệ thống">
+          <i class="mdi mdi-plus-box"></i> <span>Thêm Thiết Bị</span>
+        </button>
+        <button class="tool-btn" id="btnManageZones" title="Quản lý các phân xưởng / khu vực">
+          <i class="mdi mdi-domain-plus"></i> <span>Khu Vực</span>
+        </button>
+        <button class="tool-btn" id="btnSettingsModal" title="Cài đặt hệ thống, tên nhà máy & Telegram Bot">
+          <i class="mdi mdi-cog-outline"></i> <span>Cài Đặt & Telegram</span>
+        </button>
+        <button class="tool-btn" id="btnScanModal" title="Quét IP dải mạng SNMP (Subnet Discovery)">
+          <i class="mdi mdi-radar"></i> <span>Quét IP</span>
+        </button>
+        <button class="tool-btn" id="btnThemeToggle" title="Đổi giao diện Neon / Glass">
+          <i class="mdi mdi-palette"></i>
+        </button>
+        <button class="tool-btn active" id="btnFlowToggle" title="Kiểu đường flow: Galaxy / Nét đứt">
+          <i class="mdi mdi-weather-dust"></i>
+        </button>
+        <button class="tool-btn" id="btnFitView" title="Vừa khung hình">
+          <i class="mdi mdi-fit-to-screen"></i>
+        </button>
+        <button class="tool-btn" id="btnResetLayout" title="Đặt lại vị trí mặc định">
+          <i class="mdi mdi-restore"></i>
+        </button>
+        <button class="tool-btn" id="btnFullscreen" title="Toàn màn hình">
+          <i class="mdi mdi-fullscreen"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- ZONE FILTER TABS -->
+    <nav class="zone-bar">
+      <div class="zone-label"><i class="mdi mdi-filter-variant"></i> PHÂN VÙNG:</div>
+      <div class="zone-chips" id="zoneChips">
+        <!-- Rendered by JS -->
+      </div>
+      <div class="zone-search">
+        <i class="mdi mdi-magnify search-icon"></i>
+        <input type="text" id="searchInput" placeholder="Tìm thiết bị, IP, cổng (ví dụ: CNC, Camera, Gi1/0/3)...">
+      </div>
+    </nav>
+
+    <!-- MAIN TOPOLOGY CANVAS WRAPPER -->
+    <main class="topo-viewport" id="topoViewport">
+      <div class="canvas-zoom-container" id="zoomContainer">
+        <!-- SVG CONNECTIONS OVERLAY -->
+        <svg class="topo-svg-links" id="topoLinksSvg">
+          <defs>
+            <filter id="glow-cyan" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+          </defs>
+        </svg>
+
+        <!-- TOPOLOGY NODES LAYER (Absolute Coordinate Drag & Drop) -->
+        <div class="topo-nodes-layer" id="topoNodesLayer"></div>
+
+        <!-- EXPANDED PORTS CONTAINER -->
+        <div class="ports-columns-container" id="portsColumns"></div>
+      </div>
+
+      <!-- ZOOM FLOATING CONTROLS -->
+      <div class="zoom-controls">
+        <button class="zoom-btn" id="btnZoomIn" title="Phóng to"><i class="mdi mdi-plus"></i></button>
+        <span class="zoom-level" id="lblZoomLevel">100%</span>
+        <button class="zoom-btn" id="btnZoomOut" title="Thu nhỏ"><i class="mdi mdi-minus"></i></button>
+      </div>
+
+      <!-- CANVAS BOTTOM LEGEND -->
+      <div class="canvas-legend">
+        <div class="legend-item"><span class="legend-dot online"></span> Hoạt Động</div>
+        <div class="legend-item"><span class="legend-dot warn"></span> Cảnh Báo (Lưu lượng/Dung lượng)</div>
+        <div class="legend-item"><span class="legend-dot bad"></span> Mất Kết Nối</div>
+        <div class="legend-item"><span class="legend-line flow"></span> Dòng Chảy Băng Thông Thực Tế</div>
+        <div class="legend-tip"><i class="mdi mdi-cursor-move"></i> Kéo thả thiết bị tự do trên màn hình · Bấm vào node để mở chi tiết</div>
+      </div>
+    </main>
+
+    <!-- DEVICE INSPECTOR DRAWER (SLIDE-OUT) -->
+    <aside class="device-drawer" id="deviceDrawer">
+      <div class="drawer-header">
+        <div class="drawer-title-box">
+          <i class="mdi mdi-chip drawer-icon" id="drawerIcon"></i>
+          <div>
+            <h3 class="drawer-title" id="drawerTitle">Cisco C1000-24FP</h3>
+            <span class="drawer-subtitle" id="drawerSubtitle">192.168.1.11 · Xưởng Cơ Khí A</span>
+          </div>
+        </div>
+        <div class="drawer-actions">
+          <button class="btn-drawer-edit" id="btnEditCurrentDevice" title="Chỉnh sửa thông số thiết bị này">
+            <i class="mdi mdi-pencil"></i> Sửa
+          </button>
+          <button class="drawer-close" id="btnDrawerClose"><i class="mdi mdi-close"></i></button>
+        </div>
+      </div>
+
+      <div class="drawer-body" id="drawerBody">
+        <!-- Rendered dynamically -->
+      </div>
+    </aside>
+
+    <!-- DEVICE CREATE / EDIT MODAL -->
+    <div class="modal-backdrop" id="deviceEditModal">
+      <div class="modal-card modal-large">
+        <div class="modal-header">
+          <div class="modal-title" id="deviceModalTitle"><i class="mdi mdi-pencil-box-outline"></i> CẤU HÌNH THIẾT BỊ</div>
+          <button class="modal-close" id="btnDeviceModalClose"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="modal-body">
+          <form id="deviceEditForm" class="device-form">
+            <input type="hidden" id="editDevId">
+            
+            <div class="form-row">
+              <div class="form-group flex-2">
+                <label>Tên Thiết Bị / Hostname: <span class="required">*</span></label>
+                <input type="text" id="editDevName" required placeholder="Ví dụ: SW-XUONG-C, NAS-BACKUP...">
+              </div>
+              <div class="form-group flex-1">
+                <label>Loại Thiết Bị: <span class="required">*</span></label>
+                <select id="editDevType">
+                  <option value="switch">Switch Phân Phối / Access</option>
+                  <option value="core_switch">Switch Lõi (Core Switch)</option>
+                  <option value="nas">Thiết Bị Lưu Trữ NAS</option>
+                  <option value="nvr">Đầu Ghi Camera NVR</option>
+                  <option value="firewall">Tường Lửa / Firewall</option>
+                  <option value="controller">Wi-Fi Controller</option>
+                  <option value="ap">Access Point (AP)</option>
+                  <option value="ups">Bộ Lưu Điện UPS</option>
+                  <option value="server">Máy Chủ / SCADA Gateway</option>
+                  <option value="isp">Đường Truyền Internet (ISP)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>Địa Chỉ IP Quản Trị: <span class="required">*</span></label>
+                <input type="text" id="editDevIp" required placeholder="192.168.1.x">
+              </div>
+              <div class="form-group flex-1">
+                <label style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>Khu Vực (Zone): <span class="required">*</span></span>
+                  <button type="button" class="btn-link-action" id="btnQuickAddZone" title="Tạo nhanh phân xưởng mới">+ Tạo Mới</button>
+                </label>
+                <select id="editDevZone">
+                  <!-- Dynamically populated from zones -->
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label>Trạng Thái:</label>
+                <select id="editDevStatus">
+                  <option value="ok">Bình Thường (Online)</option>
+                  <option value="warn">Cảnh Báo (Warning)</option>
+                  <option value="bad">Mất Kết Nối (Offline/Error)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>Thiết Bị Cha (Kết Nối Topo Uplink): <span class="required">*</span></label>
+                <select id="editDevParent">
+                  <!-- Dynamically populated with all switches & core -->
+                </select>
+                <small style="color:var(--text-dim); font-size:11px;">Thiết bị mà thiết bị này đấu cáp vào để tự động vẽ sơ đồ mạng.</small>
+              </div>
+              <div class="form-group flex-1">
+                <label>Cổng Trên Thiết Bị Cha (Parent Port):</label>
+                <input type="text" id="editDevParentPort" placeholder="ví dụ: Te1/0/5, Gi1/0/10...">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>Hãng Sản Xuất (Vendor):</label>
+                <input type="text" id="editDevVendor" placeholder="Cisco, Synology, Dahua, Fortinet...">
+              </div>
+              <div class="form-group flex-2">
+                <label>Model Phần Cứng:</label>
+                <input type="text" id="editDevModel" placeholder="Catalyst 1000, DS920+, NVR5864...">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>SNMP Community String:</label>
+                <input type="text" id="editDevSnmpCommunity" value="public">
+              </div>
+              <div class="form-group flex-1">
+                <label>SNMP Version:</label>
+                <select id="editDevSnmpVer">
+                  <option value="2c">SNMP v2c (Phổ biến)</option>
+                  <option value="1">SNMP v1</option>
+                  <option value="3">SNMP v3</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label>SNMP Port UDP:</label>
+                <input type="number" id="editDevSnmpPort" value="161">
+              </div>
+            </div>
+
+            <!-- SNMP CONNECTION TEST PANEL -->
+            <div class="snmp-test-panel">
+              <button type="button" class="btn-test-snmp" id="btnTestDeviceSnmp">
+                <i class="mdi mdi-connection"></i> Kiểm Tra Kết Nối SNMP Tới IP Thiết Bị
+              </button>
+              <div id="snmpTestResult" class="snmp-test-result" style="display: none;"></div>
+            </div>
+
+            <!-- NVR SPECIAL CONFIG SECTION -->
+            <div id="sectionNvrConfig" class="special-config-card" style="display: none;">
+              <div class="special-header"><i class="mdi mdi-cctv"></i> THÔNG SỐ ĐẶC THÙ ĐẦU GHI CAMERA (NVR)</div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>Tổng Số Kênh Hỗ Trợ:</label>
+                  <input type="number" id="nvrTotalChannels" value="64">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Số Kênh Đang Ghi Hình:</label>
+                  <input type="number" id="nvrActiveChannels" value="48">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Thời Gian Lưu Trữ (Ngày):</label>
+                  <input type="number" id="nvrRetentionDays" value="30">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>Tổng Dung Lượng Ổ Cứng (TB):</label>
+                  <input type="number" step="0.1" id="nvrStorageTotal" value="32.0">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Đã Sử Dụng (TB):</label>
+                  <input type="number" step="0.1" id="nvrStorageUsed" value="26.4">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Chuẩn Nén Video:</label>
+                  <input type="text" id="nvrCodec" value="H.265+ Smart Codec">
+                </div>
+              </div>
+            </div>
+
+            <!-- NAS SPECIAL CONFIG SECTION -->
+            <div id="sectionNasConfig" class="special-config-card" style="display: none;">
+              <div class="special-header"><i class="mdi mdi-server"></i> THÔNG SỐ ĐẶC THÙ LƯU TRỮ (NAS)</div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>Tổng Dung Lượng (TB):</label>
+                  <input type="number" step="0.1" id="nasStorageTotal" value="24.0">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Đã Dùng (TB):</label>
+                  <input type="number" step="0.1" id="nasStorageUsed" value="21.8">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Cấu Hình RAID:</label>
+                  <input type="text" id="nasRaidType" value="RAID 5 (4x 8TB)">
+                </div>
+              </div>
+
+              <!-- Shared Folders Sub-Table -->
+              <div class="sub-list-wrap">
+                <div class="sub-list-header">
+                  <span class="sub-title"><i class="mdi mdi-folder-network"></i> THƯ MỤC CHIA SẺ (SHARED FOLDERS)</span>
+                  <button type="button" class="btn-sm-tool" id="btnAddNasFolder"><i class="mdi mdi-plus"></i> Thêm Thư Mục</button>
+                </div>
+                <table class="sub-table" id="nasFoldersTable">
+                  <thead>
+                    <tr>
+                      <th>Tên Thư Mục</th>
+                      <th>Dung Lượng (GB)</th>
+                      <th>Quyền Truy Cập</th>
+                      <th>Mô Tả / Mục Đích</th>
+                      <th>Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody id="nasFoldersTbody"></tbody>
+                </table>
+              </div>
+
+              <!-- User Accounts Sub-Table -->
+              <div class="sub-list-wrap" style="margin-top:12px;">
+                <div class="sub-list-header">
+                  <span class="sub-title"><i class="mdi mdi-account-group"></i> TÀI KHOẢN NGƯỜI DÙNG & PHÂN QUYỀN</span>
+                  <button type="button" class="btn-sm-tool" id="btnAddNasUser"><i class="mdi mdi-plus"></i> Thêm Tài Khoản</button>
+                </div>
+                <table class="sub-table" id="nasUsersTable">
+                  <thead>
+                    <tr>
+                      <th>Tên Đăng Nhập</th>
+                      <th>Họ Tên / Phòng Ban</th>
+                      <th>Nhóm Quyền</th>
+                      <th>Trạng Thái</th>
+                      <th>Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody id="nasUsersTbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- SWITCH SPECIAL CONFIG SECTION -->
+            <div id="sectionSwitchConfig" class="special-config-card" style="display: none;">
+              <div class="special-header"><i class="mdi mdi-lan-connect"></i> THÔNG SỐ SWITCH VÀ CỔNG UPLINK</div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>Cổng Uplink Trên Switch Này:</label>
+                  <input type="text" id="editDevChildPort" placeholder="ví dụ: Gi1/0/24 hoặc Te1/0/1">
+                  <small style="color:var(--text-dim); font-size:11px;">Cổng của switch này dùng để cắm dây nối lên Switch Cha.</small>
+                </div>
+                <div class="form-group flex-1">
+                  <label>Tổng Số Cổng Mạng (Port Count):</label>
+                  <select id="switchPortsCount">
+                    <option value="24" selected>24 Cổng Gigabit + 4 SFP (28 Ports)</option>
+                    <option value="48">48 Cổng Gigabit + 4 SFP+ (52 Ports)</option>
+                    <option value="16">16 Cổng Gigabit</option>
+                    <option value="8">8 Cổng Gigabit PoE</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>Tổng Công Suất PoE Cấp Nguồn (Watts):</label>
+                  <input type="number" id="switchPoeTotal" value="370">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Công Suất PoE Đang Tiêu Thụ (Watts):</label>
+                  <input type="number" id="switchPoeUsed" value="185">
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer-actions">
+              <button type="button" class="btn-danger" id="btnDeleteDevice" style="display: none;">
+                <i class="mdi mdi-delete"></i> Xóa Thiết Bị
+              </button>
+              <div style="flex:1"></div>
+              <button type="button" class="btn-secondary" id="btnCancelDeviceModal">Hủy</button>
+              <button type="submit" class="btn-primary" id="btnSaveDeviceModal">
+                <i class="mdi mdi-content-save"></i> Lưu Thiết Bị
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZONE MANAGEMENT MODAL -->
+    <div class="modal-backdrop" id="zoneManageModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title"><i class="mdi mdi-domain-plus"></i> QUẢN LÝ PHÂN XƯỞNG / KHU VỰC</div>
+          <button class="modal-close" id="btnZoneModalClose"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="add-zone-box">
+            <h4>Thêm Phân Vùng Mới:</h4>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>Mã Khu Vực (ID):</label>
+                <input type="text" id="newZoneId" placeholder="ví dụ: xuong_c, kho_b">
+              </div>
+              <div class="form-group flex-2">
+                <label>Tên Hiển Thị:</label>
+                <input type="text" id="newZoneName" placeholder="ví dụ: Xưởng Đúc C, Kho Bao Bì">
+              </div>
+              <div class="form-group flex-1">
+                <label>Icon MDI:</label>
+                <input type="text" id="newZoneIcon" value="mdi:cogs">
+              </div>
+              <div class="form-group" style="align-self: flex-end;">
+                <button type="button" class="btn-primary" id="btnAddZoneSubmit">
+                  <i class="mdi mdi-plus"></i> Thêm
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <h4>Danh Sách Phân Vùng Hiện Tại:</h4>
+          <div class="results-table-wrap">
+            <table class="results-table" id="zonesListTable">
+              <thead>
+                <tr>
+                  <th>Mã ID</th>
+                  <th>Tên Khu Vực</th>
+                  <th>Icon</th>
+                  <th>Số Thiết Bị</th>
+                  <th>Hành Động</th>
+                </tr>
+              </thead>
+              <tbody id="zonesListTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUBNET DISCOVERY MODAL -->
+    <div class="modal-backdrop" id="scanModal">
+      <div class="modal-card modal-large">
+        <div class="modal-header">
+          <div class="modal-title"><i class="mdi mdi-radar"></i> QUÉT MẠNG & TỰ ĐỘNG PHÁT HIỆN THIẾT BỊ (NMS SCANNER)</div>
+          <button class="modal-close" id="btnScanClose"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="scan-form-box">
+            <!-- 1. CHỌN CARD MẠNG MÁY CHỦ -->
+            <div class="form-row">
+              <div class="form-group flex-2">
+                <label style="display:flex; justify-content:space-between; align-items:center;">
+                  <span><i class="mdi mdi-network-outline"></i> Card Mạng Máy Chủ (Network Interface): <span class="required">*</span></span>
+                  <button type="button" class="btn-link-action" id="btnRefreshNics" title="Làm mới danh sách card mạng"><i class="mdi mdi-refresh"></i> Làm mới</button>
+                </label>
+                <select id="scanNicSelect">
+                  <option value="">Đang tải danh sách card mạng...</option>
+                </select>
+                <small id="scanNicInfo" style="color:var(--neon-cyan); font-size:11px; font-family:var(--font-mono);"></small>
+              </div>
+              <div class="form-group flex-1">
+                <label>Chế Độ Quét:</label>
+                <select id="scanModeSelect">
+                  <option value="live" selected>Quét Mạng Trực Tiếp (Live Port/SNMP Scan)</option>
+                  <option value="demo">Mô Phỏng Toàn Bộ Nhà Máy (Factory Demo)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 2. DẢI IP QUÉT -->
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>IP Bắt Đầu (Start IP):</label>
+                <input type="text" id="scanStartIp" value="192.168.10.1">
+              </div>
+              <div class="form-group flex-1">
+                <label>IP Kết Thúc (End IP):</label>
+                <input type="text" id="scanEndIp" value="192.168.10.30">
+              </div>
+              <div class="form-group flex-1">
+                <label>SNMP Community:</label>
+                <input type="text" id="scanCommunityInput" value="public">
+              </div>
+              <div class="form-group flex-1">
+                <label>SNMP Version:</label>
+                <select id="scanVersionSelect">
+                  <option value="2c" selected>SNMP v2c</option>
+                  <option value="1">SNMP v1</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 3. CÁC CỔNG DỊCH VỤ CẦN QUÉT -->
+            <div class="form-group" style="margin-bottom:12px;">
+              <label><i class="mdi mdi-check-network-outline"></i> Các Cổng Dịch Vụ Cần Nhận Diện (Target Ports):</label>
+              <div class="port-checkboxes" style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
+                <label class="checkbox-label"><input type="checkbox" id="scanPortSnmp" checked value="161"> <span>161 (SNMP UDP)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scanPortWeb" checked value="80,443"> <span>80, 443 (Web Admin)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scanPortNvr" checked value="554,37777,8000"> <span>554, 37777 (Camera/NVR)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scanPortNas" checked value="445,5000"> <span>445, 5000 (NAS Storage)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scanPortSsh" checked value="22"> <span>22 (SSH Switch/Linux)</span></label>
+              </div>
+            </div>
+
+            <!-- NÚT ĐIỀU KHIỂN QUÉT -->
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button class="btn-primary" id="btnStartScan" style="flex:1;">
+                <i class="mdi mdi-play"></i> BẮT ĐẦU QUÉT MẠNG
+              </button>
+              <button class="btn-danger" id="btnCancelScan" style="display:none;">
+                <i class="mdi mdi-stop"></i> Dừng Quét
+              </button>
+            </div>
+          </div>
+
+          <!-- THANH TIẾN ĐỘ THỜI GIAN THỰC -->
+          <div class="scan-progress-box" id="scanProgressBox" style="display: none; margin-top:16px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
+              <span id="scanProgressStatus" style="color:#e2e8f0; font-family:var(--font-mono);">Đang chuẩn bị gửi gói tin thăm dò mạng...</span>
+              <span id="scanProgressPercent" style="color:var(--neon-cyan); font-weight:700; font-family:var(--font-mono);">0%</span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill" id="scanProgressBar" style="width:0%;"></div>
+            </div>
+          </div>
+
+          <!-- BẢNG KẾT QUẢ THIẾT BỊ PHÁT HIỆN ĐƯỢC -->
+          <div class="scan-results" id="scanResults" style="display: none; margin-top:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <h4 style="margin:0; font-size:13px; color:var(--neon-green); display:flex; align-items:center; gap:6px;">
+                <i class="mdi mdi-check-circle-outline"></i> THIẾT BỊ PHÁT HIỆN ĐƯỢC (<span id="scanFoundCount">0</span>):
+              </h4>
+              <small style="color:var(--text-dim); font-size:11px;">Bấm "+ Thêm Vào Topo" để đưa thiết bị lên sơ đồ mạng nhà máy</small>
+            </div>
+            <div class="results-table-wrap">
+              <table class="results-table" id="scanResultsTable">
+                <thead>
+                  <tr>
+                    <th>Địa Chỉ IP</th>
+                    <th>Loại Thiết Bị</th>
+                    <th>Hãng & Tên (sysDescr)</th>
+                    <th>Cổng Mở (Open Ports)</th>
+                    <th>Độ Trễ</th>
+                    <th>Hành Động</th>
+                  </tr>
+                </thead>
+                <tbody id="scanResultsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYSTEM SETTINGS & TELEGRAM MODAL -->
+    <div class="modal-backdrop" id="settingsModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title"><i class="mdi mdi-cog-outline"></i> CÀI ĐẶT HỆ THỐNG & CẢNH BÁO TELEGRAM</div>
+          <button class="modal-close" id="btnSettingsModalClose"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="settings-tab-buttons">
+            <button type="button" class="tab-btn active" id="tabBtnFactory">Thông Tin Nhà Máy</button>
+            <button type="button" class="tab-btn" id="tabBtnTelegram">Cảnh Báo Telegram Bot</button>
+          </div>
+
+          <!-- TAB 1: FACTORY INFO -->
+          <div id="tabContentFactory" class="tab-pane active">
+            <div class="form-group">
+              <label>Tên Nhà Máy / Doanh Nghiệp: <span class="required">*</span></label>
+              <input type="text" id="cfgFactoryName" placeholder="Tên nhà máy hiển thị trên tiêu đề">
+            </div>
+            <div class="form-group">
+              <label>Địa Điểm / Khu Công Nghiệp:</label>
+              <input type="text" id="cfgFactoryLocation" placeholder="Khu công nghiệp, tỉnh thành...">
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>Chu Kỳ Polling SNMP (Giây):</label>
+                <input type="number" id="cfgPollInterval" min="1" max="60" value="3">
+              </div>
+              <div class="form-group flex-1">
+                <label>Ngưỡng Kích Hoạt Dòng Chảy (bps):</label>
+                <input type="number" id="cfgActiveThreshold" min="0" value="2000">
+              </div>
+            </div>
+            <div class="modal-footer-actions">
+              <button type="button" class="btn-primary" id="btnSaveFactorySettings">
+                <i class="mdi mdi-content-save"></i> Lưu Cấu Hình Nhà Máy
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB 2: TELEGRAM ALERTS -->
+          <div id="tabContentTelegram" class="tab-pane" style="display: none;">
+            <div class="form-group" style="flex-direction:row; align-items:center; gap:10px;">
+              <input type="checkbox" id="cfgTgEnabled" style="width:18px; height:18px; cursor:pointer;">
+              <label for="cfgTgEnabled" style="font-weight:700; color:#fff; cursor:pointer;">BẬT TÍNH NĂNG CẢNH BÁO TỰ ĐỘNG QUA TELEGRAM</label>
+            </div>
+            <div class="form-group">
+              <label>Telegram Bot Token: <span class="required">*</span></label>
+              <input type="text" id="cfgTgToken" placeholder="ví dụ: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ">
+              <small style="color:var(--text-dim); font-size:11px;">Tạo bot từ @BotFather trên ứng dụng Telegram để nhận token.</small>
+            </div>
+            <div class="form-group">
+              <label>Telegram Chat ID (Cá nhân hoặc ID Nhóm): <span class="required">*</span></label>
+              <input type="text" id="cfgTgChatId" placeholder="ví dụ: -1001234567890 hoặc 987654321">
+              <small style="color:var(--text-dim); font-size:11px;">Lấy ID qua bot @userinfobot hoặc mời bot vào nhóm kỹ thuật.</small>
+            </div>
+
+            <div style="margin-top:10px;">
+              <label style="font-size:12px; font-weight:600; color:var(--neon-cyan);">CÁC SỰ KIỆN KÍCH HOẠT THÔNG BÁO:</label>
+              <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#e2e8f0; cursor:pointer;">
+                  <input type="checkbox" id="cfgTgOffline" checked> Cảnh báo khi có thiết bị Mất Kết Nối (Offline / Unreachable)
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#e2e8f0; cursor:pointer;">
+                  <input type="checkbox" id="cfgTgTraffic" checked> Cảnh báo khi Lưu lượng cổng vượt ngưỡng Nghiêm trọng (Critical Alert)
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#e2e8f0; cursor:pointer;">
+                  <input type="checkbox" id="cfgTgStorage" checked> Cảnh báo khi Dung lượng ổ cứng NAS hoặc NVR vượt 90%
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-footer-actions">
+              <button type="button" class="btn-secondary" id="btnTestTelegram">
+                <i class="mdi mdi-send"></i> Gửi Thử Nghiệm
+              </button>
+              <div style="flex:1"></div>
+              <button type="button" class="btn-primary" id="btnSaveTelegramSettings">
+                <i class="mdi mdi-content-save"></i> Lưu Cấu Hình Telegram
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/app.js?v=2.0.4"></script>
+</body>
+</html>

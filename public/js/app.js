@@ -65,6 +65,16 @@ function bindChange(id, handler) {
   }
 }
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ============================================================================
 // FORMATTERS & MATH
 // ============================================================================
@@ -1239,9 +1249,56 @@ function initDeviceModalEvents() {
             <span>• Địa chỉ IP: ${d.ip} | Port: ${d.port} | SNMP v${d.snmp_version}</span><br>
             <span>• sysDescr: ${d.sysDescr || 'OK'}</span><br>
             <span>• Thời gian hoạt động (UpTime): ${d.sysUpTime || 'Online'}</span>
-            ${d.open_ports ? `<br><span>• Cổng mở phát hiện: ${d.open_ports.map(p => 'Port ' + p).join(', ')}</span>` : ''}
+            ${d.sensors_discovered ? `<br><span>• Chỉ số SNMP tìm thấy: ${Object.keys(d.sensors_discovered).filter(k => d.sensors_discovered[k] && d.sensors_discovered[k].available).map(k => k.toUpperCase()).join(', ')}</span>` : ''}
+            ${d.interfaces && d.interfaces.length ? `<br><span>• Đã quét thấy ${d.interfaces.length} cổng mạng (${d.interfaces.filter(i => i.status === 'up').length} cổng UP)</span>` : ''}
             ${d.note ? `<br><small style="color:#fcd34d;">• ${d.note}</small>` : ''}
           `;
+
+          // Tự động kích hoạt các cảm biến tìm thấy và cập nhật nhãn trạng thái
+          if (d.sensors_discovered) {
+            const sd = d.sensors_discovered;
+            if (sd.cpu) {
+              document.getElementById('chkSensorCpu').checked = !!sd.cpu.available;
+              const hint = document.getElementById('hintSensorCpu');
+              if (hint) {
+                hint.innerHTML = sd.cpu.available
+                  ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> OID CPU hợp lệ (${sd.cpu.value}%)</span>`
+                  : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Thiết bị không hỗ trợ OID CPU</span>`;
+              }
+            }
+            if (sd.ram) {
+              document.getElementById('chkSensorRam').checked = !!sd.ram.available;
+              const hint = document.getElementById('hintSensorRam');
+              if (hint) {
+                hint.innerHTML = sd.ram.available
+                  ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> OID RAM hợp lệ (${sd.ram.value}%)</span>`
+                  : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Thiết bị không hỗ trợ OID RAM</span>`;
+              }
+            }
+            if (sd.temp) {
+              document.getElementById('chkSensorTemp').checked = !!sd.temp.available;
+              const hint = document.getElementById('hintSensorTemp');
+              if (hint) {
+                hint.innerHTML = sd.temp.available
+                  ? `<span style="color:#34d399; font-weight:600;"><i class="mdi mdi-check-circle"></i> Cảm biến nhiệt độ (${sd.temp.value}°C)</span>`
+                  : `<span style="color:var(--text-dim);"><i class="mdi mdi-information-outline"></i> Không có cảm biến nhiệt</span>`;
+              }
+            }
+            if (sd.uptime) {
+              document.getElementById('chkSensorUptime').checked = !!sd.uptime.available;
+            }
+            if (sd.sessions) {
+              document.getElementById('chkSensorSessions').checked = !!sd.sessions.available;
+            }
+            if (sd.storage) {
+              document.getElementById('chkSensorStorage').checked = !!sd.storage.available;
+            }
+          }
+
+          // Nạp các cổng mạng thực tế phát hiện được
+          if (Array.isArray(d.interfaces) && d.interfaces.length > 0) {
+            renderPortsSelectTable(d.interfaces);
+          }
         } else {
           setEditDeviceStatusDisplay('bad');
           resBox.className = 'snmp-test-result error';
@@ -1254,6 +1311,22 @@ function initDeviceModalEvents() {
         resBox.innerHTML = `<strong><i class="mdi mdi-close-circle"></i> LỖI KIỂM TRA:</strong> ${e.message}`;
       }
     }
+  });
+
+  // Bulk Interface Selection actions
+  bindClick('btnSelectAllPorts', () => {
+    document.querySelectorAll('#portsSelectTbody .port-monitored-chk').forEach(c => c.checked = true);
+  });
+  bindClick('btnDeselectAllPorts', () => {
+    document.querySelectorAll('#portsSelectTbody .port-monitored-chk').forEach(c => c.checked = false);
+  });
+  bindClick('btnSelectUpPortsOnly', () => {
+    document.querySelectorAll('#portsSelectTbody tr').forEach(tr => {
+      const chk = tr.querySelector('.port-monitored-chk');
+      if (chk) {
+        chk.checked = (tr.dataset.status === 'up');
+      }
+    });
   });
 
   // Add NAS Folder row
@@ -1317,6 +1390,12 @@ function handleDeviceTypeChange(type) {
   if (nvrSec) nvrSec.style.display = type === 'nvr' ? 'block' : 'none';
   if (nasSec) nasSec.style.display = type === 'nas' ? 'block' : 'none';
   if (swSec) swSec.style.display = (type === 'switch' || type === 'core_switch') ? 'block' : 'none';
+
+  // Hiện/ẩn các chỉ số đặc thù cho từng loại thiết bị
+  const itemSessions = document.getElementById('itemSensorSessions');
+  const itemStorage = document.getElementById('itemSensorStorage');
+  if (itemSessions) itemSessions.style.display = (type === 'firewall') ? 'flex' : 'none';
+  if (itemStorage) itemStorage.style.display = (type === 'nas' || type === 'nvr' || type === 'server') ? 'flex' : 'none';
 }
 
 function populateZoneDropdown(currentZoneId = 'mdf') {
@@ -1333,6 +1412,9 @@ function populateZoneDropdown(currentZoneId = 'mdf') {
     if (z.id === currentZoneId) opt.selected = true;
     select.appendChild(opt);
   });
+  if (!select.value && select.options.length > 0) {
+    select.selectedIndex = 0;
+  }
 }
 
 function populateParentDropdown(excludeNodeId = null, currentParentId = null) {
@@ -1396,6 +1478,48 @@ function setEditDeviceStatusDisplay(status) {
   }
 }
 
+function renderPortsSelectTable(ports = []) {
+  const tbody = document.getElementById('portsSelectTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!ports || ports.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-dim); padding:16px;">Chưa có dữ liệu cổng. Bấm "Kiểm tra kết nối SNMP" để đọc tự động.</td></tr>`;
+    return;
+  }
+
+  ports.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.dataset.port = p.port;
+    tr.dataset.speed = p.speed || (p.speed_mbps ? p.speed_mbps + 'M' : '1000M');
+    tr.dataset.status = p.status || 'down';
+
+    const isMonitored = p.monitored !== false;
+    const isUp = (p.status || '').toLowerCase() === 'up';
+
+    tr.innerHTML = `
+      <td style="text-align:center;">
+        <input type="checkbox" class="port-monitored-chk" ${isMonitored ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px; accent-color:var(--accent-cyan);">
+      </td>
+      <td style="font-weight:600; text-align:center;">${p.port}</td>
+      <td class="port-name-text" style="font-family:monospace; color:var(--accent-cyan); font-weight:500;">
+        ${escapeHtml(p.name || `Port ${p.port}`)}
+      </td>
+      <td>${escapeHtml(p.speed || (p.speed_mbps ? p.speed_mbps + ' Mbps' : '1 Gbps'))}</td>
+      <td>
+        <span class="status-badge ${isUp ? 'status-up' : 'status-down'}" style="padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:4px; ${isUp ? 'background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);' : 'background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.3);'}">
+          <span style="width:6px; height:6px; border-radius:50%; background:${isUp ? '#10b981' : '#94a3b8'};"></span>
+          ${isUp ? 'UP (Online)' : 'DOWN'}
+        </span>
+      </td>
+      <td>
+        <input type="text" class="port-note-input" value="${escapeHtml(p.note || '')}" placeholder="Gán thiết bị/VLAN..." style="padding:4px 8px; font-size:12px; width:100%; border-radius:4px; border:1px solid var(--border-color); background:rgba(0,0,0,0.2); color:var(--text-main);">
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 function openCreateDeviceModal() {
   const modal = document.getElementById('deviceEditModal');
   const titleEl = document.getElementById('deviceModalTitle');
@@ -1421,6 +1545,28 @@ function openCreateDeviceModal() {
   populateZoneDropdown('mdf');
   populateParentDropdown(newId);
   handleDeviceTypeChange('switch');
+
+  // Khởi tạo tùy chọn chỉ số cảm biến mặc định
+  document.getElementById('chkSensorCpu').checked = true;
+  document.getElementById('chkSensorRam').checked = true;
+  document.getElementById('chkSensorTemp').checked = true;
+  document.getElementById('chkSensorUptime').checked = true;
+  document.getElementById('chkSensorSessions').checked = false;
+  document.getElementById('chkSensorStorage').checked = false;
+
+  const hintCpu = document.getElementById('hintSensorCpu');
+  if (hintCpu) hintCpu.innerHTML = 'Cisco / SonicWall / Fortinet / HostResources';
+  const hintRam = document.getElementById('hintSensorRam');
+  if (hintRam) hintRam.innerHTML = 'Physical & Virtual Memory MIB';
+  const hintTemp = document.getElementById('hintSensorTemp');
+  if (hintTemp) hintTemp.innerHTML = 'Cisco EnvMon / Synology Temp MIB';
+
+  // Khởi tạo bảng cổng mạng mặc định
+  const defaultPorts = [];
+  for (let i = 1; i <= 24; i++) {
+    defaultPorts.push({ port: i, name: `Gi1/0/${i}`, speed: '1000M', status: 'down', monitored: true, note: '' });
+  }
+  renderPortsSelectTable(defaultPorts);
 
   const fTbody = document.getElementById('nasFoldersTbody');
   const uTbody = document.getElementById('nasUsersTbody');
@@ -1472,6 +1618,33 @@ function openEditDeviceModal(nodeId) {
   document.getElementById('editDevSnmpPort').value = snmp.port || 161;
 
   handleDeviceTypeChange(currentType);
+
+  // Nạp trạng thái tùy chọn giám sát cảm biến
+  const ms = dev.monitored_sensors || {};
+  document.getElementById('chkSensorCpu').checked = ms.cpu !== undefined ? !!ms.cpu : true;
+  document.getElementById('chkSensorRam').checked = ms.ram !== undefined ? !!ms.ram : true;
+  document.getElementById('chkSensorTemp').checked = ms.temp !== undefined ? !!ms.temp : true;
+  document.getElementById('chkSensorUptime').checked = ms.uptime !== undefined ? !!ms.uptime : true;
+  document.getElementById('chkSensorSessions').checked = ms.sessions !== undefined ? !!ms.sessions : (currentType === 'firewall');
+  document.getElementById('chkSensorStorage').checked = ms.storage !== undefined ? !!ms.storage : (currentType === 'nas' || currentType === 'nvr');
+
+  const hintCpu = document.getElementById('hintSensorCpu');
+  if (hintCpu) hintCpu.innerHTML = dev.cpu_percent !== undefined ? `Giá trị gần nhất: ${dev.cpu_percent}%` : 'Cisco / SonicWall / Fortinet / HostResources';
+  const hintRam = document.getElementById('hintSensorRam');
+  if (hintRam) hintRam.innerHTML = dev.ram_percent !== undefined ? `Giá trị gần nhất: ${dev.ram_percent}%` : 'Physical & Virtual Memory MIB';
+  const hintTemp = document.getElementById('hintSensorTemp');
+  if (hintTemp) hintTemp.innerHTML = dev.temp_c !== undefined ? `Giá trị gần nhất: ${dev.temp_c}°C` : 'Cisco EnvMon / Synology Temp MIB';
+
+  // Nạp danh sách các cổng mạng
+  let portsToRender = dev.ports;
+  if (!portsToRender || portsToRender.length === 0) {
+    const portCount = dev.ports_count || (currentType === 'switch' ? 24 : 8);
+    portsToRender = [];
+    for (let i = 1; i <= portCount; i++) {
+      portsToRender.push({ port: i, name: `Port ${i}`, speed: '1000M', status: 'down', monitored: true, note: '' });
+    }
+  }
+  renderPortsSelectTable(portsToRender);
 
   // Fill NVR fields
   if (currentType === 'nvr') {
@@ -1574,8 +1747,36 @@ async function saveDeviceForm() {
     port: Number(document.getElementById('editDevSnmpPort').value) || 161
   };
 
+  const monitored_sensors = {
+    cpu: document.getElementById('chkSensorCpu') ? document.getElementById('chkSensorCpu').checked : true,
+    ram: document.getElementById('chkSensorRam') ? document.getElementById('chkSensorRam').checked : true,
+    temp: document.getElementById('chkSensorTemp') ? document.getElementById('chkSensorTemp').checked : true,
+    uptime: document.getElementById('chkSensorUptime') ? document.getElementById('chkSensorUptime').checked : true,
+    sessions: document.getElementById('chkSensorSessions') ? document.getElementById('chkSensorSessions').checked : false,
+    storage: document.getElementById('chkSensorStorage') ? document.getElementById('chkSensorStorage').checked : false
+  };
+
+  const ports = [];
+  document.querySelectorAll('#portsSelectTbody tr').forEach(tr => {
+    const portNum = Number(tr.dataset.port);
+    if (!portNum) return;
+    const chk = tr.querySelector('.port-monitored-chk');
+    const nameEl = tr.querySelector('.port-name-text');
+    const noteEl = tr.querySelector('.port-note-input');
+    ports.push({
+      port: portNum,
+      name: nameEl ? nameEl.textContent.trim() : `Port ${portNum}`,
+      monitored: chk ? chk.checked : true,
+      speed: tr.dataset.speed || '1000M',
+      status: tr.dataset.status || 'down',
+      note: noteEl ? noteEl.value.trim() : ''
+    });
+  });
+
   const payload = {
-    id, name, type, ip, zone, status, vendor, model, parent, parent_port, child_port, snmp
+    id, name, type, ip, zone, status, vendor, model, parent, parent_port, child_port, snmp,
+    monitored_sensors,
+    ports
   };
 
   if (type === 'nvr') {
@@ -1885,43 +2086,58 @@ function initZoneModalEvents() {
   const modal = document.getElementById('zoneManageModal');
 
   bindClick('btnManageZones', () => {
+    cancelEditZone();
     renderZonesManagementList();
     if (modal) modal.classList.add('open');
   });
 
   bindClick('btnZoneModalClose', () => {
+    cancelEditZone();
     if (modal) modal.classList.remove('open');
   });
 
-  bindClick('btnAddZoneSubmit', async () => {
-    const id = document.getElementById('newZoneId').value.trim();
-    const name = document.getElementById('newZoneName').value.trim();
-    const icon = document.getElementById('newZoneIcon').value.trim() || 'mdi:domain';
+  bindClick('btnCancelEditZone', () => {
+    cancelEditZone();
+  });
 
-    if (!id || !name) {
-      alert('Vui lòng điền Mã ID và Tên khu vực!');
+  bindClick('btnAddZoneSubmit', async () => {
+    const origId = document.getElementById('editZoneOrigId').value.trim();
+    let id = document.getElementById('newZoneId').value.trim();
+    const name = document.getElementById('newZoneName').value.trim();
+    const icon = document.getElementById('newZoneIcon').value.trim() || 'mdi-domain';
+
+    if (!name) {
+      alert('Vui lòng nhập Tên khu vực / phân xưởng!');
       return;
+    }
+
+    if (!id) {
+      // Tự sinh mã ID thân thiện từ tên khu vực
+      id = name.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      if (!id) id = 'zone_' + Date.now().toString(36);
     }
 
     try {
       const res = await fetch('/api/zone/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, icon })
+        body: JSON.stringify({ id, name, icon, original_id: origId })
       });
       const d = await res.json();
       if (d.success) {
         state.topology.zones = d.zones;
         renderZones();
         renderZonesManagementList();
-        document.getElementById('newZoneId').value = '';
-        document.getElementById('newZoneName').value = '';
-        showToast(`Đã thêm khu vực "${name}" thành công!`);
+        cancelEditZone();
+        showToast(origId ? `Đã cập nhật thông tin phân xưởng "${name}"!` : `Đã thêm phân xưởng "${name}" thành công!`);
       } else {
-        alert(d.error || 'Lỗi thêm khu vực');
+        alert(d.error || 'Lỗi lưu thông tin khu vực');
       }
     } catch (e) {
-      alert('Lỗi: ' + e.message);
+      alert('Lỗi kết nối: ' + e.message);
     }
   });
 }
@@ -1934,35 +2150,108 @@ function renderZonesManagementList() {
 
   const t = state.topology;
   const countInZone = (zid) => {
-    if (zid === 'all') return '–';
+    if (zid === 'all') {
+      return (t.switches || []).length + (t.infrastructure_nodes || []).length + (t.firewall ? 1 : 0) + (t.core_switch ? 1 : 0);
+    }
     let cnt = 0;
     (t.switches || []).forEach(s => { if (s.zone === zid) cnt++; });
     (t.infrastructure_nodes || []).forEach(n => { if (n.zone === zid) cnt++; });
     if (t.firewall && t.firewall.zone === zid) cnt++;
+    if (t.core_switch && t.core_switch.zone === zid) cnt++;
     return cnt;
   };
 
   t.zones.forEach((z) => {
     const tr = document.createElement('tr');
+    const isFilterAll = (z.id === 'all');
     tr.innerHTML = `
-      <td><code>${z.id}</code></td>
-      <td><strong>${z.name}</strong></td>
-      <td><i class="mdi ${z.icon}"></i></td>
+      <td style="text-align:center;"><i class="mdi ${z.icon || 'mdi-domain'}" style="font-size:20px; color:var(--accent-cyan);"></i></td>
+      <td><strong>${escapeHtml(z.name)}</strong></td>
+      <td><code>${escapeHtml(z.id)}</code></td>
       <td>${countInZone(z.id)} thiết bị</td>
       <td>
-        ${z.id !== 'all' && z.id !== 'mdf' ? `
-          <button class="btn-del-row" onclick="deleteZone('${z.id}')" title="Xóa khu vực này">
-            <i class="mdi mdi-delete"></i>
+        ${!isFilterAll ? `
+          <button type="button" class="btn-xs btn-edit-row" onclick="startEditZone('${escapeHtml(z.id)}')" title="Chỉnh sửa tên và cấu hình khu vực này">
+            <i class="mdi mdi-pencil"></i> Sửa
           </button>
-        ` : '<span style="color:var(--text-dim); font-size:11px;">Mặc định</span>'}
+          <button type="button" class="btn-xs btn-del-row" onclick="deleteZone('${escapeHtml(z.id)}')" title="Xóa khu vực này">
+            <i class="mdi mdi-delete"></i> Xóa
+          </button>
+        ` : '<span style="color:var(--text-dim); font-size:11px;">Mặc định (Bộ lọc)</span>'}
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
 
+window.startEditZone = function(zoneId) {
+  const z = (state.topology && state.topology.zones || []).find(item => item.id === zoneId);
+  if (!z) return;
+
+  const origIdEl = document.getElementById('editZoneOrigId');
+  const nameEl = document.getElementById('newZoneName');
+  const idEl = document.getElementById('newZoneId');
+  const iconEl = document.getElementById('newZoneIcon');
+  const titleEl = document.getElementById('zoneFormTitle');
+  const btnSubmit = document.getElementById('btnAddZoneSubmit');
+  const btnCancel = document.getElementById('btnCancelEditZone');
+
+  if (origIdEl) origIdEl.value = z.id;
+  if (nameEl) nameEl.value = z.name || '';
+  if (idEl) idEl.value = z.id || '';
+  if (iconEl) {
+    iconEl.value = z.icon || 'mdi-server-network';
+    if (!iconEl.value) {
+      let found = false;
+      for (let opt of iconEl.options) {
+        if (opt.value === z.icon) { found = true; break; }
+      }
+      if (!found && z.icon) {
+        const customOpt = new Option(z.icon, z.icon, true, true);
+        iconEl.add(customOpt);
+      }
+    }
+  }
+
+  if (titleEl) titleEl.innerHTML = `<i class="mdi mdi-pencil"></i> Đang chỉnh sửa phân xưởng: <strong>${escapeHtml(z.name)}</strong>`;
+  if (btnSubmit) {
+    btnSubmit.innerHTML = `<i class="mdi mdi-content-save"></i> Cập Nhật`;
+    btnSubmit.classList.remove('btn-primary');
+    btnSubmit.classList.add('btn-warning');
+  }
+  if (btnCancel) btnCancel.style.display = 'inline-block';
+  if (nameEl) nameEl.focus();
+};
+
+window.cancelEditZone = function() {
+  const origIdEl = document.getElementById('editZoneOrigId');
+  const nameEl = document.getElementById('newZoneName');
+  const idEl = document.getElementById('newZoneId');
+  const titleEl = document.getElementById('zoneFormTitle');
+  const btnSubmit = document.getElementById('btnAddZoneSubmit');
+  const btnCancel = document.getElementById('btnCancelEditZone');
+
+  if (origIdEl) origIdEl.value = '';
+  if (nameEl) nameEl.value = '';
+  if (idEl) idEl.value = '';
+
+  if (titleEl) titleEl.innerHTML = `<i class="mdi mdi-plus-box"></i> Thêm Phân Xưởng / Khu Vực Mới:`;
+  if (btnSubmit) {
+    btnSubmit.innerHTML = `<i class="mdi mdi-plus"></i> Thêm Khu Vực`;
+    btnSubmit.classList.add('btn-primary');
+    btnSubmit.classList.remove('btn-warning');
+  }
+  if (btnCancel) btnCancel.style.display = 'none';
+};
+
 window.deleteZone = async function(id) {
-  if (confirm(`Bạn có chắc muốn xóa phân vùng "${id}"?`)) {
+  if (id === 'all') {
+    alert('Không thể xóa bộ lọc "Tất cả"!');
+    return;
+  }
+  const z = (state.topology && state.topology.zones || []).find(item => item.id === id);
+  const zName = z ? z.name : id;
+  if (confirm(`Bạn có chắc muốn xóa phân xưởng "${zName}" (${id})?\nCác thiết bị trong khu vực này sẽ tự động chuyển sang phân xưởng còn lại.`)) {
     try {
       const res = await fetch('/api/zone/delete', {
         method: 'POST',
@@ -1974,9 +2263,10 @@ window.deleteZone = async function(id) {
         state.topology.zones = d.zones;
         renderZones();
         renderZonesManagementList();
-        showToast('Đã xóa khu vực');
+        cancelEditZone();
+        showToast(`Đã xóa phân xưởng "${zName}"!`);
       } else {
-        alert(d.error || 'Lỗi khi xóa');
+        alert(d.error || 'Lỗi khi xóa phân xưởng');
       }
     } catch (e) {
       alert('Lỗi: ' + e.message);

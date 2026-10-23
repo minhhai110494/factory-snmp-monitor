@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Factory SNMP Network Monitor - Giám Sát Mạng Nhà Máy</title>
-  <link rel="stylesheet" href="css/style.css?v=2.0.5">
+  <link rel="stylesheet" href="css/style.css?v=2.0.6">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
 </head>
 <body class="theme-neon">
@@ -400,6 +400,101 @@
               </div>
             </div>
 
+            <!-- SNMP SENSORS & METRICS SELECTION PANEL -->
+            <div class="snmp-sensors-card" id="snmpSensorsPanel">
+              <div class="sensors-header">
+                <div class="sensors-title">
+                  <i class="mdi mdi-checkbox-multiple-marked-circle"></i> TÙY CHỌN CHỈ SỐ SNMP CẦN GIÁM SÁT (MONITORING SENSORS)
+                </div>
+                <div class="sensors-subtitle">
+                  Lựa chọn các thông số thiết bị cung cấp mà bạn muốn theo dõi hoặc bỏ qua để tối ưu băng thông mạng
+                </div>
+              </div>
+
+              <!-- METRIC TOGGLE CHECKBOXES -->
+              <div class="sensors-grid">
+                <label class="sensor-checkbox-item">
+                  <input type="checkbox" id="chkSensorCpu" checked>
+                  <div class="sensor-info">
+                    <span class="sensor-name"><i class="mdi mdi-cpu-64-bit"></i> Tải Xử Lý CPU (%)</span>
+                    <span class="sensor-hint" id="hintSensorCpu">Cisco / SonicWall / Fortinet / HostResources</span>
+                  </div>
+                </label>
+
+                <label class="sensor-checkbox-item">
+                  <input type="checkbox" id="chkSensorRam" checked>
+                  <div class="sensor-info">
+                    <span class="sensor-name"><i class="mdi mdi-memory"></i> Bộ Nhớ RAM (%)</span>
+                    <span class="sensor-hint" id="hintSensorRam">Physical & Virtual Memory MIB</span>
+                  </div>
+                </label>
+
+                <label class="sensor-checkbox-item">
+                  <input type="checkbox" id="chkSensorTemp" checked>
+                  <div class="sensor-info">
+                    <span class="sensor-name"><i class="mdi mdi-thermometer"></i> Cảm Biến Nhiệt Độ (°C)</span>
+                    <span class="sensor-hint" id="hintSensorTemp">Cisco EnvMon / Synology Temp MIB</span>
+                  </div>
+                </label>
+
+                <label class="sensor-checkbox-item">
+                  <input type="checkbox" id="chkSensorUptime" checked>
+                  <div class="sensor-info">
+                    <span class="sensor-name"><i class="mdi mdi-clock-outline"></i> Thời Gian Chạy (UpTime) & Ping</span>
+                    <span class="sensor-hint">sysUpTime.0 (RFC 1213)</span>
+                  </div>
+                </label>
+
+                <label class="sensor-checkbox-item" id="itemSensorSessions">
+                  <input type="checkbox" id="chkSensorSessions" checked>
+                  <div class="sensor-info">
+                    <span class="sensor-name"><i class="mdi mdi-swap-horizontal-bold"></i> Số Lượng Phiên (Sessions)</span>
+                    <span class="sensor-hint">Dành riêng cho Tường Lửa Firewall</span>
+                  </div>
+                </label>
+
+                <label class="sensor-checkbox-item" id="itemSensorStorage">
+                  <input type="checkbox" id="chkSensorStorage" checked>
+                  <div class="sensor-info">
+                    <span class="sensor-name"><i class="mdi mdi-harddisk"></i> Dung Lượng Ổ Cứng (Storage)</span>
+                    <span class="sensor-hint">Dành cho NAS, NVR, Máy Chủ</span>
+                  </div>
+                </label>
+              </div>
+
+              <!-- INTERFACE / PORT MONITORING SELECTOR -->
+              <div class="ports-monitor-section" id="portsMonitorSection">
+                <div class="ports-header-bar">
+                  <div>
+                    <strong><i class="mdi mdi-lan-connect"></i> Danh Sách Cổng Mạng Phát Hiện Được (Network Interfaces):</strong>
+                    <div style="font-size:11px; color:var(--text-dim);">Chọn các cổng cần đo băng thông (bỏ chọn các cổng không dùng để giảm tải gói tin polling)</div>
+                  </div>
+                  <div class="ports-bulk-actions">
+                    <button type="button" class="btn-xs" id="btnSelectAllPorts">Chọn Tất Cả</button>
+                    <button type="button" class="btn-xs" id="btnSelectUpPortsOnly">Chỉ Cổng Đang UP</button>
+                    <button type="button" class="btn-xs" id="btnDeselectAllPorts">Bỏ Chọn Hết</button>
+                  </div>
+                </div>
+                <div class="ports-table-wrapper">
+                  <table class="ports-select-table">
+                    <thead>
+                      <tr>
+                        <th width="45">Theo Dõi</th>
+                        <th width="65">Cổng #</th>
+                        <th>Tên Giao Diện (ifDescr / ifName)</th>
+                        <th>Tốc Độ</th>
+                        <th>Trạng Thái Cắm Cáp</th>
+                        <th>Ghi Chú Kết Nối</th>
+                      </tr>
+                    </thead>
+                    <tbody id="portsSelectTbody">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
             <div class="modal-footer-actions">
               <button type="button" class="btn-danger" id="btnDeleteDevice" style="display: none;">
                 <i class="mdi mdi-delete"></i> Xóa Thiết Bị
@@ -423,24 +518,39 @@
           <button class="modal-close" id="btnZoneModalClose"><i class="mdi mdi-close"></i></button>
         </div>
         <div class="modal-body">
-          <div class="add-zone-box">
-            <h4>Thêm Phân Vùng Mới:</h4>
+          <div class="add-zone-box" id="zoneFormBox">
+            <h4 id="zoneFormTitle"><i class="mdi mdi-plus-box"></i> Thêm Phân Xưởng / Khu Vực Mới:</h4>
+            <input type="hidden" id="editZoneOrigId" value="">
             <div class="form-row">
-              <div class="form-group flex-1">
-                <label>Mã Khu Vực (ID):</label>
-                <input type="text" id="newZoneId" placeholder="ví dụ: xuong_c, kho_b">
-              </div>
               <div class="form-group flex-2">
-                <label>Tên Hiển Thị:</label>
-                <input type="text" id="newZoneName" placeholder="ví dụ: Xưởng Đúc C, Kho Bao Bì">
+                <label>Tên Phân Xưởng / Khu Vực: <span class="required">*</span></label>
+                <input type="text" id="newZoneName" placeholder="ví dụ: Phòng Server Trung Tâm, Tủ Rack Kho A...">
               </div>
               <div class="form-group flex-1">
-                <label>Icon MDI:</label>
-                <input type="text" id="newZoneIcon" value="mdi:cogs">
+                <label>Mã ID (Tùy chọn):</label>
+                <input type="text" id="newZoneId" placeholder="Tự sinh nếu để trống">
               </div>
-              <div class="form-group" style="align-self: flex-end;">
+              <div class="form-group flex-1">
+                <label>Biểu Tượng Icon:</label>
+                <select id="newZoneIcon">
+                  <option value="mdi-server-network">🖥️ Phòng Server (MDF)</option>
+                  <option value="mdi-server">🗄️ Tủ Rack Thiết Bị</option>
+                  <option value="mdi-factory">🏭 Toàn Nhà Máy</option>
+                  <option value="mdi-cogs">⚙️ Xưởng Cơ Khí</option>
+                  <option value="mdi-robot-industrial">🤖 Xưởng Lắp Ráp / Robot</option>
+                  <option value="mdi-warehouse">📦 Kho Hàng & Logistics</option>
+                  <option value="mdi-office-building">🏢 Văn Phòng Điều Hành</option>
+                  <option value="mdi-flash">⚡ Phòng Điện / Trạm Nguồn</option>
+                  <option value="mdi-cctv">📹 Phòng Giám Sát Camera</option>
+                  <option value="mdi-shield-lock">🔒 Khu Vực Bảo Mật</option>
+                </select>
+              </div>
+              <div class="form-group" style="align-self: flex-end; display:flex; gap:6px;">
                 <button type="button" class="btn-primary" id="btnAddZoneSubmit">
-                  <i class="mdi mdi-plus"></i> Thêm
+                  <i class="mdi mdi-plus"></i> Thêm Khu Vực
+                </button>
+                <button type="button" class="btn-secondary" id="btnCancelEditZone" style="display:none;">
+                  Hủy Sửa
                 </button>
               </div>
             </div>
@@ -451,11 +561,11 @@
             <table class="results-table" id="zonesListTable">
               <thead>
                 <tr>
+                  <th width="50">Icon</th>
+                  <th>Tên Khu Vực / Phân Xưởng</th>
                   <th>Mã ID</th>
-                  <th>Tên Khu Vực</th>
-                  <th>Icon</th>
                   <th>Số Thiết Bị</th>
-                  <th>Hành Động</th>
+                  <th width="150">Hành Động</th>
                 </tr>
               </thead>
               <tbody id="zonesListTbody"></tbody>
@@ -668,6 +778,6 @@
 
   </div>
 
-  <script src="js/app.js?v=2.0.5"></script>
+  <script src="js/app.js?v=2.0.6"></script>
 </body>
 </html>

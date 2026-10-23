@@ -493,17 +493,42 @@ async function executeRealPhysicalSnmpPollingCycle() {
     const community = (dev.snmp && dev.snmp.community) || 'public';
     const snmpPort = (dev.snmp && dev.snmp.port) || 161;
 
+    // Tùy chọn chỉ số cần monitor từ cấu hình thiết bị
+    const sensors = dev.monitored_sensors || { cpu: true, ram: true, temp: true, uptime: true, sessions: true, storage: true };
+
     // Chuẩn bị danh sách OID cần query
     const oidsToQuery = [
       '1.3.6.1.2.1.1.1.0', // sysDescr
-      '1.3.6.1.2.1.1.3.0', // sysUpTime
       '1.3.6.1.2.1.1.5.0'  // sysName
     ];
+    if (sensors.uptime !== false) {
+      oidsToQuery.push('1.3.6.1.2.1.1.3.0'); // sysUpTime
+    }
 
-    // Thêm OID cổng mạng nếu là switch hoặc firewall
+    // Thêm OID CPU Vendor nếu người dùng chọn monitor
+    if (sensors.cpu !== false) {
+      oidsToQuery.push('1.3.6.1.4.1.9.9.109.1.1.1.1.5.1'); // Cisco CPU
+      oidsToQuery.push('1.3.6.1.4.1.8741.1.3.1.3.0');      // SonicWall CPU
+      oidsToQuery.push('1.3.6.1.4.1.12356.101.4.1.3.0');   // Fortinet CPU
+      oidsToQuery.push('1.3.6.1.2.1.25.3.3.1.2.1');        // HostResources CPU
+    }
+
+    // Thêm OID RAM nếu người dùng chọn monitor
+    if (sensors.ram !== false) {
+      oidsToQuery.push('1.3.6.1.4.1.8741.1.3.1.4.0');      // SonicWall RAM
+      oidsToQuery.push('1.3.6.1.4.1.12356.101.4.1.4.0');   // Fortinet RAM
+    }
+
+    // Thêm OID Nhiệt độ nếu người dùng chọn monitor
+    if (sensors.temp !== false) {
+      oidsToQuery.push('1.3.6.1.4.1.6574.1.5.1.0');        // Synology Temp
+      oidsToQuery.push('1.3.6.1.4.1.9.9.13.1.3.1.3.1');    // Cisco Temp
+    }
+
+    // Thêm OID cổng mạng NẾU LÀ CỔNG ĐƯỢC CHỌN MONITOR
     if (dev.ports && dev.ports.length) {
-      // Query 8 cổng đầu tiên để đảm bảo gói tin không vượt MTU
-      const activePorts = dev.ports.slice(0, 8);
+      // Chỉ query các cổng được đánh dấu monitored !== false
+      const activePorts = dev.ports.filter(p => p.monitored !== false).slice(0, 10);
       activePorts.forEach(p => {
         oidsToQuery.push(`1.3.6.1.2.1.31.1.1.1.6.${p.port}`);  // ifHCInOctets
         oidsToQuery.push(`1.3.6.1.2.1.31.1.1.1.10.${p.port}`); // ifHCOutOctets
@@ -515,14 +540,8 @@ async function executeRealPhysicalSnmpPollingCycle() {
       oidsToQuery.push('1.3.6.1.2.1.31.1.1.1.10.1'); // ifHCOutOctets
     }
 
-    // Thêm OID CPU Vendor
-    oidsToQuery.push('1.3.6.1.4.1.9.9.109.1.1.1.1.5.1'); // Cisco CPU
-    oidsToQuery.push('1.3.6.1.4.1.8741.1.3.1.3.0');      // SonicWall CPU
-    oidsToQuery.push('1.3.6.1.4.1.12356.101.4.1.3.0');   // Fortinet CPU
-    oidsToQuery.push('1.3.6.1.4.1.6574.1.5.1.0');        // Synology Temp
-
     // GỬI GÓI TIN SNMP THẬT 100% QUA UDP 161
-    const snmpRes = await querySnmpDevice(ip, community, snmpPort, oidsToQuery, 800);
+    const snmpRes = await querySnmpDevice(ip, community, snmpPort, oidsToQuery, 900);
 
     const prevStatus = previousDeviceStatus.get(dev.id);
 
@@ -767,9 +786,72 @@ const server = http.createServer(async (req, res) => {
       }
 
       try {
-        const snmpRes = await querySnmpDevice(ip, community, port, ['1.3.6.1.2.1.1.1.0', '1.3.6.1.2.1.1.3.0', '1.3.6.1.2.1.1.5.0'], 800);
+        const oidsToProbe = [
+          '1.3.6.1.2.1.1.1.0', // sysDescr
+          '1.3.6.1.2.1.1.3.0', // sysUpTime
+          '1.3.6.1.2.1.1.5.0', // sysName
+          '1.3.6.1.4.1.9.9.109.1.1.1.1.5.1', // Cisco CPU
+          '1.3.6.1.4.1.8741.1.3.1.3.0',      // SonicWall CPU
+          '1.3.6.1.4.1.12356.101.4.1.3.0',   // Fortinet CPU
+          '1.3.6.1.2.1.25.3.3.1.2.1',        // HostResources CPU
+          '1.3.6.1.4.1.8741.1.3.1.4.0',      // SonicWall RAM
+          '1.3.6.1.4.1.12356.101.4.1.4.0',   // Fortinet RAM
+          '1.3.6.1.4.1.6574.1.5.1.0',        // Synology Temp
+          '1.3.6.1.4.1.9.9.13.1.3.1.3.1'     // Cisco Temp
+        ];
+
+        // Probe thông tin 8 cổng mạng đầu tiên
+        for (let i = 1; i <= 8; i++) {
+          oidsToProbe.push(`1.3.6.1.2.1.2.2.1.2.${i}`); // ifDescr
+          oidsToProbe.push(`1.3.6.1.2.1.2.2.1.8.${i}`); // ifOperStatus
+          oidsToProbe.push(`1.3.6.1.2.1.31.1.1.1.1.${i}`); // ifName
+          oidsToProbe.push(`1.3.6.1.2.1.31.1.1.1.15.${i}`); // ifHighSpeed
+        }
+
+        const snmpRes = await querySnmpDevice(ip, community, port, oidsToProbe, 1000);
         if (snmpRes.success) {
           const v = snmpRes.values;
+          const sysDescr = v['1.3.6.1.2.1.1.1.0'] || 'SNMP Responder';
+          const sysName = v['1.3.6.1.2.1.1.5.0'] || '';
+
+          // Nhận diện CPU
+          let cpuVal = null;
+          if (v['1.3.6.1.4.1.9.9.109.1.1.1.1.5.1'] != null) cpuVal = Number(v['1.3.6.1.4.1.9.9.109.1.1.1.1.5.1']);
+          else if (v['1.3.6.1.4.1.8741.1.3.1.3.0'] != null) cpuVal = Number(v['1.3.6.1.4.1.8741.1.3.1.3.0']);
+          else if (v['1.3.6.1.4.1.12356.101.4.1.3.0'] != null) cpuVal = Number(v['1.3.6.1.4.1.12356.101.4.1.3.0']);
+          else if (v['1.3.6.1.2.1.25.3.3.1.2.1'] != null) cpuVal = Number(v['1.3.6.1.2.1.25.3.3.1.2.1']);
+
+          // Nhận diện RAM
+          let ramVal = null;
+          if (v['1.3.6.1.4.1.8741.1.3.1.4.0'] != null) ramVal = Number(v['1.3.6.1.4.1.8741.1.3.1.4.0']);
+          else if (v['1.3.6.1.4.1.12356.101.4.1.4.0'] != null) ramVal = Number(v['1.3.6.1.4.1.12356.101.4.1.4.0']);
+
+          // Nhận diện Nhiệt độ
+          let tempVal = null;
+          if (v['1.3.6.1.4.1.6574.1.5.1.0'] != null) tempVal = Number(v['1.3.6.1.4.1.6574.1.5.1.0']);
+          else if (v['1.3.6.1.4.1.9.9.13.1.3.1.3.1'] != null) tempVal = Number(v['1.3.6.1.4.1.9.9.13.1.3.1.3.1']);
+
+          // Danh sách cổng mạng phát hiện thực tế
+          const discoveredInterfaces = [];
+          for (let i = 1; i <= 8; i++) {
+            const ifName = v[`1.3.6.1.2.1.31.1.1.1.1.${i}`] || v[`1.3.6.1.2.1.2.2.1.2.${i}`];
+            if (ifName) {
+              const opStatus = Number(v[`1.3.6.1.2.1.2.2.1.8.${i}`]);
+              const highSpeed = Number(v[`1.3.6.1.2.1.31.1.1.1.15.${i}`]);
+              let speedStr = '1 Gbps';
+              if (highSpeed >= 10000) speedStr = '10 Gbps';
+              else if (highSpeed >= 1000) speedStr = '1 Gbps';
+              else if (highSpeed >= 100) speedStr = '100 Mbps';
+
+              discoveredInterfaces.push({
+                port: i,
+                name: ifName,
+                speed: speedStr,
+                status: opStatus === 1 ? 'up' : 'down'
+              });
+            }
+          }
+
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({
             success: true,
@@ -777,10 +859,20 @@ const server = http.createServer(async (req, res) => {
             ip,
             latency_ms: snmpRes.latency,
             status: 'online',
-            sysDescr: v['1.3.6.1.2.1.1.1.0'] || 'SNMP Responder',
+            sysDescr,
+            sysName,
             sysUpTime: v['1.3.6.1.2.1.1.3.0'] ? `${Math.floor(Number(v['1.3.6.1.2.1.1.3.0']) / 8640000)}d` : 'Online',
             snmp_version: data.version || '2c',
-            port
+            port,
+            sensors_discovered: {
+              cpu: { supported: cpuVal !== null, current_val: cpuVal },
+              ram: { supported: ramVal !== null, current_val: ramVal },
+              temp: { supported: tempVal !== null, current_val: tempVal },
+              uptime: { supported: true },
+              sessions: { supported: /sonicwall|fortinet|cisco|firewall/i.test(sysDescr) },
+              storage: { supported: /synology|nas|storage|nvr/i.test(sysDescr) || data.type === 'nas' || data.type === 'nvr' }
+            },
+            interfaces: discoveredInterfaces.length ? discoveredInterfaces : null
           }));
         } else {
           // Thử TCP probe
@@ -1154,12 +1246,31 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'Thiếu thông tin phân vùng (id, name)' }));
         return;
       }
-      const idx = (topologyData.zones || []).findIndex(z => z.id === zone.id);
+      if (!topologyData.zones) topologyData.zones = [];
+      const origId = (zone.original_id || zone.id).trim();
+      const newId = zone.id.trim();
+      const newName = zone.name.trim();
+      const newIcon = zone.icon || 'mdi:domain';
+
+      const idx = topologyData.zones.findIndex(z => z.id === origId || z.id === newId);
+      const newZoneObj = { id: newId, name: newName, icon: newIcon };
+
       if (idx >= 0) {
-        topologyData.zones[idx] = { ...topologyData.zones[idx], ...zone };
+        const oldId = topologyData.zones[idx].id;
+        topologyData.zones[idx] = newZoneObj;
+        // Migrate any devices if ID was modified
+        if (oldId !== newId) {
+          const migrateZone = (dev) => {
+            if (dev && dev.zone === oldId) dev.zone = newId;
+          };
+          if (topologyData.firewall) migrateZone(topologyData.firewall);
+          if (topologyData.core_switch) migrateZone(topologyData.core_switch);
+          (topologyData.switches || []).forEach(migrateZone);
+          (topologyData.infrastructure_nodes || []).forEach(migrateZone);
+          (topologyData.isp || []).forEach(migrateZone);
+        }
       } else {
-        if (!topologyData.zones) topologyData.zones = [];
-        topologyData.zones.push({ id: zone.id, name: zone.name, icon: zone.icon || 'mdi:domain' });
+        topologyData.zones.push(newZoneObj);
       }
       saveConfig();
       broadcastSSE({ type: 'topology_updated' });
@@ -1175,9 +1286,22 @@ const server = http.createServer(async (req, res) => {
       const id = data && data.id;
       if (!id || id === 'all') {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Không thể xóa phân vùng mặc định' }));
+        res.end(JSON.stringify({ error: 'Không thể xóa phân vùng này' }));
         return;
       }
+      // Migrate any devices in deleted zone to first remaining non-'all' zone
+      const remainingZones = (topologyData.zones || []).filter(z => z.id !== id && z.id !== 'all');
+      const targetZoneId = remainingZones.length > 0 ? remainingZones[0].id : 'mdf';
+
+      const migrateDeviceZone = (dev) => {
+        if (dev && dev.zone === id) dev.zone = targetZoneId;
+      };
+      if (topologyData.firewall) migrateDeviceZone(topologyData.firewall);
+      if (topologyData.core_switch) migrateDeviceZone(topologyData.core_switch);
+      (topologyData.switches || []).forEach(migrateDeviceZone);
+      (topologyData.infrastructure_nodes || []).forEach(migrateDeviceZone);
+      (topologyData.isp || []).forEach(migrateDeviceZone);
+
       topologyData.zones = (topologyData.zones || []).filter(z => z.id !== id);
       saveConfig();
       broadcastSSE({ type: 'topology_updated' });

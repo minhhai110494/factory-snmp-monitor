@@ -1585,3 +1585,189 @@ select option:checked {
 .device-type-badge.ups { background: rgba(16, 185, 129, 0.15); color: #34d399; }
 .device-type-badge.server { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
 
+/* ==========================================================================
+   SNMP SENSORS & METRICS SELECTION PANEL
+   ========================================================================== */
+.snmp-sensors-card {
+  background: rgba(0, 240, 255, 0.03);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.sensors-header {
+  margin-bottom: 14px;
+}
+
+.sensors-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sensors-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+.sensors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sensor-checkbox-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.sensor-checkbox-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(0, 240, 255, 0.4);
+}
+
+.sensor-checkbox-item input[type="checkbox"] {
+  accent-color: var(--neon-cyan);
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.sensor-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sensor-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sensor-name i {
+  color: var(--neon-cyan);
+  font-size: 15px;
+}
+
+.sensor-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* PORTS TABLE IN SENSORS PANEL */
+.ports-monitor-section {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.ports-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ports-header-bar strong {
+  font-size: 12px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ports-bulk-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-xs {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-xs:hover {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: var(--neon-cyan);
+  color: #fff;
+}
+
+.ports-table-wrapper {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.ports-select-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ports-select-table th {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.ports-select-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.ports-select-table tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.btn-edit-row {
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--neon-cyan);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.btn-edit-row:hover {
+  background: var(--neon-cyan);
+  color: #000;
+}
+
